@@ -1,0 +1,11 @@
+[
+  { "date": "2026-01-01", "name": "New Year's Day", "country": "ALL" },
+  { "date": "2026-02-17", "name": "Chinese New Year", "country": "CN" },
+  { "date": "2026-02-18", "name": "Chinese New Year", "country": "CN" },
+  { "date": "2026-02-19", "name": "Chinese New Year", "country": "CN" },
+  { "date": "2026-05-01", "name": "Labor Day", "country": "CN" },
+  { "date": "2026-07-04", "name": "Independence Day", "country": "US" },
+  { "date": "2026-10-01", "name": "National Day", "country": "CN" },
+  { "date": "2026-11-26", "name": "Thanksgiving Day", "country": "US" },
+  { "date": "2026-12-25", "name": "Christmas Day", "country": "ALL" }
+]
