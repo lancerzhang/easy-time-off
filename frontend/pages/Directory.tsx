@@ -37,6 +37,7 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     return () => clearTimeout(timer);
   }, [memberSearch]);
 
+
   const loadData = async () => {
     setLoading(true);
     const allTeams = await api.team.getCreatedByUser(currentUser.id);
@@ -69,6 +70,7 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
       const users = await api.user.getByIds(team.memberIds);
       setSelectedUsers(users);
   };
+
 
   const handleSaveTeam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,6 +201,7 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
             </div>
         )}
       </div>
+
 
       {/* Create/Edit Team Modal */}
       {isModalOpen && (

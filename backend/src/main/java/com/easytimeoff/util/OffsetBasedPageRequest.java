@@ -59,6 +59,12 @@ public class OffsetBasedPageRequest implements Pageable {
     }
 
     @Override
+    public Pageable withPage(int pageNumber) {
+        int safePage = Math.max(0, pageNumber);
+        return new OffsetBasedPageRequest((long) safePage * limit, limit, sort);
+    }
+
+    @Override
     public boolean hasPrevious() {
         return offset > 0;
     }

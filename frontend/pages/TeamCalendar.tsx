@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Star, Share2, Users, Check, Calendar as CalendarIcon, Filter, List, Grid3X3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Star, Share2, Users, Check, Calendar as CalendarIcon, Filter, List, Grid3X3, Search, Copy } from 'lucide-react';
 import { api } from '../services/api';
 import { useToast } from '../components/ToastContext';
 import { Team, User, LeaveRecord, DataSource, PublicHoliday, Pod } from '../types';
@@ -37,6 +37,12 @@ const TeamCalendar: React.FC = () => {
   const [userPodLoaded, setUserPodLoaded] = useState(false);
   const { favoriteTeams, favoriteTeamIds, toggleFavorite: toggleFavoriteTeam } = useSidebarData();
   const loading = loadingGroup || loadingHolidays;
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [copyName, setCopyName] = useState('');
+  const [copySelectedUsers, setCopySelectedUsers] = useState<User[]>([]);
+  const [copyMemberSearch, setCopyMemberSearch] = useState('');
+  const [copySearchResults, setCopySearchResults] = useState<User[]>([]);
+  const [isCopySearching, setIsCopySearching] = useState(false);
   
   // Hover State
   const [hoveredDateIso, setHoveredDateIso] = useState<string | null>(null);
@@ -148,6 +154,21 @@ const TeamCalendar: React.FC = () => {
   }, [currentUser?.teamId]);
 
   useEffect(() => {
+    if (!copyMemberSearch.trim()) {
+      setCopySearchResults([]);
+      setIsCopySearching(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsCopySearching(true);
+      const results = await api.search.users(copyMemberSearch.trim());
+      setCopySearchResults(results);
+      setIsCopySearching(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [copyMemberSearch]);
+
+  useEffect(() => {
     const loadCreatedTeams = async () => {
       if (!currentUser?.id) {
         setCreatedTeams([]);
@@ -203,6 +224,49 @@ const TeamCalendar: React.FC = () => {
     showToast(isFav ? 'Added to favorites' : 'Removed from favorites', 'success');
   };
 
+  const openCopyModal = () => {
+    if (!activeGroup) return;
+    const members = data.map(d => d.user);
+    const uniqueMembers = Array.from(new Map(members.map(u => [u.id, u])).values());
+    setCopySelectedUsers(uniqueMembers);
+    setCopyName(`${activeGroup.name} (Copy)`);
+    setCopyMemberSearch('');
+    setCopySearchResults([]);
+    setIsCopyModalOpen(true);
+  };
+
+  const toggleCopyMember = (user: User) => {
+    setCopySelectedUsers(prev => {
+      const exists = prev.some(u => u.id === user.id);
+      if (exists) return prev.filter(u => u.id !== user.id);
+      return [...prev, user];
+    });
+  };
+
+  const closeCopyModal = () => {
+    setIsCopyModalOpen(false);
+    setCopyName('');
+    setCopySelectedUsers([]);
+    setCopyMemberSearch('');
+    setCopySearchResults([]);
+    setIsCopySearching(false);
+  };
+
+  const handleCreateCopy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!copyName.trim() || copySelectedUsers.length === 0) return;
+    const newTeam = await api.team.createVirtualTeam(
+      copyName.trim(),
+      copySelectedUsers.map(u => u.id),
+      currentUser?.id
+    );
+    closeCopyModal();
+    showToast('Team copied', 'success');
+    if (newTeam?.id) {
+      navigate(`/calendar/${newTeam.id}`);
+    }
+  };
+
   const shareCalendar = () => {
     navigator.clipboard.writeText(window.location.href);
     showToast('Link copied to clipboard', 'success');
@@ -224,6 +288,8 @@ const TeamCalendar: React.FC = () => {
       const lower = memberFilter.toLowerCase();
       return data.filter(d => d.user.displayName.toLowerCase().includes(lower) || d.user.email.toLowerCase().includes(lower));
   }, [data, memberFilter]);
+
+  const copyListUsers = copyMemberSearch.trim() ? copySearchResults : copySelectedUsers;
 
   // --- Rendering Helpers ---
 
@@ -377,6 +443,15 @@ const TeamCalendar: React.FC = () => {
                     Share
                 </button>
 
+                <button 
+                    onClick={openCopyModal}
+                    className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-slate-700 rounded-lg shadow-sm hover:bg-gray-50 transition-colors text-sm"
+                    title="Copy this team to a new virtual team"
+                >
+                    <Copy size={16} />
+                    Copy
+                </button>
+
                 <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-gray-200 shadow-sm ml-auto sm:ml-0">
                     <button onClick={() => changeMonth(-1)} className="p-1.5 hover:bg-gray-100 rounded-md">
                         <ChevronLeft size={16} />
@@ -515,6 +590,102 @@ const TeamCalendar: React.FC = () => {
                         No leaves found for this month.
                     </div>
                 )}
+            </div>
+        )}
+
+        {isCopyModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
+                        <h3 className="font-bold text-lg text-slate-800">Copy to Virtual Team</h3>
+                        <button onClick={closeCopyModal} className="text-gray-400 hover:text-gray-600">
+                            <span className="text-2xl">&times;</span>
+                        </button>
+                    </div>
+
+                    <form onSubmit={handleCreateCopy} className="flex-1 overflow-hidden flex flex-col">
+                        <div className="p-6 space-y-4 overflow-y-auto">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Team Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g., Checkout Pod (Copy)"
+                                    value={copyName}
+                                    onChange={e => setCopyName(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Select Members ({copySelectedUsers.length})
+                                </label>
+                                <div className="mb-3">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                        <input
+                                            type="text"
+                                            placeholder="Search by name, email, or employee ID..."
+                                            value={copyMemberSearch}
+                                            onChange={(e) => setCopyMemberSearch(e.target.value)}
+                                            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-sm"
+                                        />
+                                    </div>
+                                    {!copyMemberSearch.trim() && copySelectedUsers.length > 0 && (
+                                        <p className="text-xs text-gray-400 mt-2">Showing selected members. Search to add more.</p>
+                                    )}
+                                </div>
+                                <div className="border border-gray-200 rounded-lg max-h-[300px] overflow-y-auto divide-y divide-gray-100">
+                                    {isCopySearching && (
+                                        <div className="p-3 text-sm text-gray-400">Searching...</div>
+                                    )}
+                                    {!isCopySearching && copyListUsers.length === 0 && (
+                                        <div className="p-3 text-sm text-gray-400">
+                                            {copyMemberSearch.trim() ? 'No matching users.' : 'Search to add members.'}
+                                        </div>
+                                    )}
+                                    {!isCopySearching && copyListUsers.map(u => {
+                                        const isSelected = copySelectedUsers.some(s => s.id === u.id);
+                                        return (
+                                            <div
+                                                key={u.id}
+                                                onClick={() => toggleCopyMember(u)}
+                                                className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${isSelected ? 'bg-brand-50' : ''}`}
+                                            >
+                                                <div className={`w-5 h-5 rounded border flex items-center justify-center ${isSelected ? 'bg-brand-600 border-brand-600' : 'border-gray-300'}`}>
+                                                    {isSelected && <Check size={12} className="text-white" />}
+                                                </div>
+                                                <img src={u.avatar} className="w-8 h-8 rounded-full" alt="" />
+                                                <div className="flex-1">
+                                                    <p className="text-sm font-medium text-slate-800">{u.displayName}</p>
+                                                    <p className="text-xs text-gray-500">{u.email}</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 shrink-0">
+                            <button
+                                type="button"
+                                onClick={closeCopyModal}
+                                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={!copyName.trim() || copySelectedUsers.length === 0}
+                                className="px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Create Team
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         )}
     </div>
