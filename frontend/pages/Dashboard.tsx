@@ -1,39 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Sun, Calendar, Users, ArrowRight, PieChart } from 'lucide-react';
+import { Sun, Calendar, Users, Star, User as UserIcon, History } from 'lucide-react';
 import { api } from '../services/api';
-import { User, LeaveRecord, PublicHoliday } from '../types';
+import { User, LeaveRecord, PublicHoliday, Team, ViewHistoryItem } from '../types';
 
 const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const [absentToday, setAbsentToday] = useState<{ user: User; leave: LeaveRecord }[]>([]);
   const [upcomingHolidays, setUpcomingHolidays] = useState<PublicHoliday[]>([]);
-  const [myLeaves, setMyLeaves] = useState<LeaveRecord[]>([]);
+  const [teamOptions, setTeamOptions] = useState<{ id: string; label: string }[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(user.teamId || null);
+  const [recentViews, setRecentViews] = useState<ViewHistoryItem[]>([]);
+  const [favoriteTeams, setFavoriteTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      // 1. My Leaves for balance & upcoming
-      const leaves = await api.leaves.getByUser(user.id);
-      setMyLeaves(leaves);
+      // Team Status
+      if (selectedTeamId) {
+        const teamData = await api.leaves.getByTeam(selectedTeamId); // Returns {user, leaves}[]
+        const today = new Date().toISOString().split('T')[0];
 
-      // 2. Team Status
-      if (user.teamId) {
-          const teamData = await api.leaves.getByTeam(user.teamId); // Returns {user, leaves}[]
-          const today = new Date().toISOString().split('T')[0];
-          
-          const absent = teamData
-            .filter(item => item.user.id !== user.id) // Exclude self
-            .map(item => {
-                const activeLeave = item.leaves.find(l => today >= l.startDate && today <= l.endDate);
-                return activeLeave ? { user: item.user, leave: activeLeave } : null;
-            })
-            .filter(Boolean) as { user: User; leave: LeaveRecord }[];
-            
-          setAbsentToday(absent);
+        const absent = teamData
+          .filter(item => item.user.id !== user.id) // Exclude self
+          .map(item => {
+            const activeLeave = item.leaves.find(l => today >= l.startDate && today <= l.endDate);
+            return activeLeave ? { user: item.user, leave: activeLeave } : null;
+          })
+          .filter(Boolean) as { user: User; leave: LeaveRecord }[];
+
+        setAbsentToday(absent);
+      } else {
+        setAbsentToday([]);
       }
 
-      // 3. Holidays (Filter by Country)
+      // Holidays (Filter by Country)
       const hols = await api.holidays.getYear(new Date().getFullYear());
       const todayIso = new Date().toISOString().split('T')[0];
       const futureHols = hols
@@ -45,20 +46,59 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       setLoading(false);
     };
     load();
+  }, [user, selectedTeamId]);
+
+  useEffect(() => {
+    const loadTeams = async () => {
+      const teams = await api.team.getAll();
+      const favIds = await api.history.getFavorites(user.id);
+      let createdIds: string[] = [];
+      try {
+        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
+        const parsed = raw ? JSON.parse(raw) : [];
+        createdIds = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        createdIds = [];
+      }
+      const options: { id: string; label: string }[] = [];
+      const added = new Set<string>();
+
+      const addOption = (team: Team | undefined, label: string) => {
+        if (!team || added.has(team.id)) return;
+        options.push({ id: team.id, label });
+        added.add(team.id);
+      };
+
+      const myTeam = teams.find(t => t.id === user.teamId);
+      if (myTeam) {
+        addOption(myTeam, `My Team · ${myTeam.name}`);
+      }
+
+      teams
+        .filter(t => t.type === 'VIRTUAL' && createdIds.includes(t.id))
+        .forEach(t => addOption(t, `Created · ${t.name}`));
+
+      teams
+        .filter(t => t.type === 'VIRTUAL' && favIds.includes(t.id))
+        .forEach(t => addOption(t, `Favorite · ${t.name}`));
+
+      setTeamOptions(options);
+      setFavoriteTeams(teams.filter(t => favIds.includes(t.id)));
+      const views = await api.history.get(user.id);
+      setRecentViews(views);
+
+      setSelectedTeamId(prev => {
+        if (prev && options.some(o => o.id === prev)) return prev;
+        return options[0]?.id ?? null;
+      });
+    };
+    loadTeams();
   }, [user]);
 
-  // Calc Balance (Mock logic: 20 days allowance)
-  const totalAllowance = 20;
-  const usedDays = myLeaves
-    .filter(l => l.status === 'APPROVED')
-    .reduce((acc, l) => {
-        const start = new Date(l.startDate);
-        const end = new Date(l.endDate);
-        const days = (end.getTime() - start.getTime()) / (1000 * 3600 * 24) + 1;
-        return acc + days;
-    }, 0);
-  const remaining = Math.max(0, totalAllowance - usedDays);
-  const percentage = (remaining / totalAllowance) * 100;
+  const selectedTeamLabel = teamOptions.find(o => o.id === selectedTeamId)?.label || 'Select team';
+  const selectedTeamName = selectedTeamLabel.includes('·')
+    ? selectedTeamLabel.split('·').slice(-1)[0].trim()
+    : selectedTeamLabel;
 
   if (loading) return (
       <div className="max-w-6xl mx-auto p-4 space-y-6 animate-pulse">
@@ -78,48 +118,43 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Balance Card */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden">
-                <div>
-                    <div className="flex items-center gap-2 mb-4">
-                        <div className="p-2 bg-brand-50 text-brand-600 rounded-lg">
-                            <PieChart size={20} />
-                        </div>
-                        <h3 className="font-bold text-slate-700">Leave Balance</h3>
-                    </div>
-                    <div className="flex items-end gap-2 relative z-10">
-                        <span className="text-4xl font-extrabold text-slate-900">{remaining}</span>
-                        <span className="text-gray-500 mb-1">/ {totalAllowance} days</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-2 mt-4 relative z-10">
-                        <div className="bg-brand-500 h-2 rounded-full transition-all duration-1000" style={{ width: `${percentage}%` }}></div>
-                    </div>
-                </div>
-                <Link to="/my-leaves" className="mt-6 text-sm text-brand-600 font-medium hover:underline flex items-center gap-1 relative z-10">
-                    Request Time Off <ArrowRight size={14} />
-                </Link>
-                {/* Decorative Circle */}
-                <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-brand-50 rounded-full"></div>
-            </div>
-
             {/* Who's Out Card */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 md:col-span-2">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <div className="flex items-center gap-2">
                         <div className="p-2 bg-orange-50 text-orange-600 rounded-lg">
                             <Users size={20} />
                         </div>
                         <h3 className="font-bold text-slate-700">Who's Out Today</h3>
                     </div>
-                    {user.teamId && (
-                        <Link to={`/calendar/${user.teamId}`} className="text-xs font-medium text-gray-400 hover:text-brand-600">View Team Calendar</Link>
-                    )}
+                    <div className="flex items-center gap-2 ml-auto">
+                        <select
+                            value={selectedTeamId || ''}
+                            onChange={(e) => setSelectedTeamId(e.target.value)}
+                            className="text-xs font-medium text-slate-600 bg-white border border-gray-200 rounded-md px-2 py-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                        >
+                            {teamOptions.length === 0 && <option value="">No teams</option>}
+                            {teamOptions.map(option => (
+                                <option key={option.id} value={option.id}>{option.label}</option>
+                            ))}
+                        </select>
+                        {selectedTeamId && (
+                            <Link to={`/calendar/${selectedTeamId}`} className="text-xs font-medium text-gray-400 hover:text-brand-600">
+                                View Calendar
+                            </Link>
+                        )}
+                    </div>
                 </div>
                 
-                {absentToday.length === 0 ? (
+                {!selectedTeamId ? (
+                    <div className="h-32 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                        <Users size={22} className="mb-2 opacity-50 text-gray-400" />
+                        <span className="text-sm">Select a team to see who's out.</span>
+                    </div>
+                ) : absentToday.length === 0 ? (
                     <div className="h-32 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
                         <Sun size={24} className="mb-2 opacity-50 text-orange-400" />
-                        <span className="text-sm">Everyone in your team is working today!</span>
+                        <span className="text-sm">Everyone in {selectedTeamName} is working today!</span>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -169,8 +204,80 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                 </div>
             </div>
 
+            {/* Recent Views */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <div className="p-2 bg-slate-50 text-slate-600 rounded-lg">
+                            <History size={20} />
+                        </div>
+                        <h3 className="font-bold text-slate-700">Recent Views</h3>
+                    </div>
+                    <Link to="/history" className="text-xs font-medium text-gray-400 hover:text-brand-600">More</Link>
+                </div>
+                <div className="space-y-3">
+                    {recentViews.length === 0 ? (
+                        <p className="text-sm text-gray-500 italic">No recent views yet.</p>
+                    ) : (
+                        recentViews.slice(0, 4).map((item) => {
+                            const isTeam = item.type === 'TEAM';
+                            const Icon = isTeam ? Users : UserIcon;
+                            return (
+                                <Link
+                                    key={item.id + item.timestamp}
+                                    to={isTeam ? `/calendar/${item.id}` : `/user/${item.id}`}
+                                    className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <span className={`p-1.5 rounded ${isTeam ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                                            <Icon size={14} />
+                                        </span>
+                                        <span className="text-sm text-slate-700 truncate">{item.name}</span>
+                                    </div>
+                                    <span className="text-xs text-gray-400">{isTeam ? 'Team' : 'Person'}</span>
+                                </Link>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
+
+            {/* Favorites */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <div className="p-2 bg-yellow-50 text-yellow-600 rounded-lg">
+                            <Star size={20} />
+                        </div>
+                        <h3 className="font-bold text-slate-700">Favorites</h3>
+                    </div>
+                    <Link to="/favorites-2" className="text-xs font-medium text-gray-400 hover:text-brand-600">More</Link>
+                </div>
+                <div className="space-y-3">
+                    {favoriteTeams.length === 0 ? (
+                        <p className="text-sm text-gray-500 italic">No favorites yet.</p>
+                    ) : (
+                        favoriteTeams.slice(0, 4).map(team => (
+                            <Link
+                                key={team.id}
+                                to={`/calendar/${team.id}`}
+                                className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <span className="p-1.5 rounded bg-indigo-50 text-indigo-600">
+                                        <Users size={14} />
+                                    </span>
+                                    <span className="text-sm text-slate-700 truncate">{team.name}</span>
+                                </div>
+                                <span className="text-xs text-gray-400">Team</span>
+                            </Link>
+                        ))
+                    )}
+                </div>
+            </div>
+
             {/* Quick Actions / Pending */}
-             <div className="bg-brand-600 rounded-2xl p-6 shadow-sm text-white md:col-span-2 flex flex-col sm:flex-row items-center justify-between gap-6 relative overflow-hidden">
+             <div className="bg-brand-600 rounded-2xl p-6 shadow-sm text-white md:col-span-3 flex flex-col sm:flex-row items-center justify-between gap-6 relative overflow-hidden">
                 {/* Decoration */}
                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-white opacity-10 rounded-full blur-2xl pointer-events-none"></div>
                 

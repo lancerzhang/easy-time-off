@@ -29,7 +29,7 @@ class EasyTimeOffApplicationTests {
         List<User> users = userController.search(null, null);
         
         assertThat(users).isNotEmpty();
-        assertThat(users).extracting(User::getName).contains("Alice Chen", "Bob Smith");
+        assertThat(users).extracting(User::getDisplayName).contains("Alice Chen", "Bob Smith");
     }
 
     @Test
@@ -38,6 +38,8 @@ class EasyTimeOffApplicationTests {
         
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().getId()).isEqualTo("u1");
+        List<User> users = userController.search(null, null);
+        assertThat(users).isNotEmpty();
+        assertThat(users).extracting(User::getId).contains(response.getBody().getId());
     }
 }

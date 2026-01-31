@@ -3,6 +3,18 @@ import { MOCK_USERS, MOCK_TEAMS, MOCK_LEAVES, PUBLIC_HOLIDAYS_2026 } from '../co
 
 const API_BASE = 'http://localhost:8080/api';
 const USE_MOCK_FALLBACK = true;
+const MOCK_HISTORY: Record<string, ViewHistoryItem[]> = {};
+const MOCK_FAVORITES: Record<string, string[]> = {};
+
+const getCurrentUserId = (): string | null => {
+    try {
+        const raw = sessionStorage.getItem('easy_timeoff_user');
+        const parsed = raw ? JSON.parse(raw) : null;
+        return parsed?.id ?? null;
+    } catch {
+        return null;
+    }
+};
 
 // Helper to simulate network delay for mocks
 const mockDelay = <T>(data: T): Promise<T> => {
@@ -201,27 +213,54 @@ export const api = {
 
   // Client-Side Only Logic
   history: {
-    get: (): ViewHistoryItem[] => {
-        return JSON.parse(localStorage.getItem('easy_timeoff_history') || '[]');
+    get: async (userId?: string): Promise<ViewHistoryItem[]> => {
+        const uid = userId || getCurrentUserId();
+        if (!uid) return [];
+        const res = await request<ViewHistoryItem[]>(`/history?userId=${encodeURIComponent(uid)}`);
+        if (res) return res;
+        return mockDelay(MOCK_HISTORY[uid] || []);
     },
-    add: (item: Omit<ViewHistoryItem, 'timestamp'>) => {
-        let list: ViewHistoryItem[] = JSON.parse(localStorage.getItem('easy_timeoff_history') || '[]');
-        list = list.filter(i => i.id !== item.id);
-        list.unshift({ ...item, timestamp: Date.now() });
+    add: async (item: Omit<ViewHistoryItem, 'timestamp'> & { userId?: string }) => {
+        const uid = item.userId || getCurrentUserId();
+        if (!uid) return;
+        const res = await request<ViewHistoryItem>('/history', {
+            method: 'POST',
+            body: JSON.stringify({
+                userId: uid,
+                itemId: item.id,
+                type: item.type,
+                name: item.name
+            })
+        });
+        if (res) return;
+        let list = MOCK_HISTORY[uid] || [];
+        list = list.filter(i => !(i.id === item.id && i.type === item.type));
+        list.unshift({ id: item.id, name: item.name, type: item.type, timestamp: Date.now() });
         if (list.length > 10) list.pop();
-        localStorage.setItem('easy_timeoff_history', JSON.stringify(list));
+        MOCK_HISTORY[uid] = list;
     },
-    getFavorites: (): string[] => {
-        return JSON.parse(localStorage.getItem('easy_timeoff_favorites') || '[]');
+    getFavorites: async (userId?: string): Promise<string[]> => {
+        const uid = userId || getCurrentUserId();
+        if (!uid) return [];
+        const res = await request<string[]>(`/favorites?userId=${encodeURIComponent(uid)}`);
+        if (res) return res;
+        return mockDelay(MOCK_FAVORITES[uid] || []);
     },
-    toggleFavorite: (id: string) => {
-        let list: string[] = JSON.parse(localStorage.getItem('easy_timeoff_favorites') || '[]');
-        if (list.includes(id)) {
-            list = list.filter(i => i !== id);
+    toggleFavorite: async (teamId: string, userId?: string) => {
+        const uid = userId || getCurrentUserId();
+        if (!uid) return [];
+        const res = await request<string[]>('/favorites', {
+            method: 'POST',
+            body: JSON.stringify({ userId: uid, teamId })
+        });
+        if (res) return res;
+        let list = MOCK_FAVORITES[uid] || [];
+        if (list.includes(teamId)) {
+            list = list.filter(i => i !== teamId);
         } else {
-            list.push(id);
+            list = [...list, teamId];
         }
-        localStorage.setItem('easy_timeoff_favorites', JSON.stringify(list));
+        MOCK_FAVORITES[uid] = list;
         return list;
     }
   },

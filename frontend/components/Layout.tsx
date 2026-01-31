@@ -8,11 +8,12 @@ import {
   X, 
   Briefcase, 
   Clock,
+  History,
   ChevronRight,
-  Settings,
   Search,
   Users,
-  LayoutDashboard
+  LayoutDashboard,
+  Star
 } from 'lucide-react';
 import { User, ViewHistoryItem, Team } from '../types';
 import { api } from '../services/api';
@@ -26,6 +27,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [history, setHistory] = useState<ViewHistoryItem[]>([]);
+  const [favoriteTeams, setFavoriteTeams] = useState<Team[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -37,9 +39,23 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
 
   useEffect(() => {
     // Refresh history when menu opens or location changes
-    setHistory(api.history.get());
+    const loadSidebarData = async () => {
+      if (!user?.id) return;
+      const [historyItems, favIds] = await Promise.all([
+        api.history.get(user.id),
+        api.history.getFavorites(user.id)
+      ]);
+      setHistory(historyItems);
+      if (favIds.length === 0) {
+        setFavoriteTeams([]);
+        return;
+      }
+      const teams = await api.team.getAll();
+      setFavoriteTeams(teams.filter(t => favIds.includes(t.id)));
+    };
     setIsMobileMenuOpen(false); // Close mobile menu on nav
-  }, [location]);
+    loadSidebarData();
+  }, [location, user]);
 
   // Click outside to close search
   useEffect(() => {
@@ -76,10 +92,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const navItems = [
     { label: 'Home', path: '/', icon: LayoutDashboard },
     { label: 'My Time-off', path: '/my-leaves', icon: Clock },
-    { label: 'My Calendar', path: user ? `/user/${user.id}` : '#', icon: UserIcon },
     { label: 'Team Calendar', path: '/calendar/pod1', icon: Calendar }, 
-    { label: 'Directory', path: '/directory', icon: Briefcase },
-    { label: 'Settings', path: '/settings', icon: Settings },
+    { label: 'Manage Teams', path: '/directory', icon: Briefcase },
+    { label: 'History', path: '/history', icon: History },
+    { label: 'Favorites 2', path: '/favorites-2', icon: Star },
   ];
 
   return (
@@ -127,17 +143,63 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
           {/* Recent History Section */}
           {history.length > 0 && (
             <div className="mt-8 pt-6 border-t border-gray-100">
-              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-4 mb-3">
-                Recent Views
-              </h3>
+              <div className="flex items-center justify-between px-4 mb-3">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Recent Views
+                </h3>
+                <Link to="/history" className="text-xs text-gray-400 hover:text-brand-600">
+                  More
+                </Link>
+              </div>
               <div className="space-y-1">
-                {history.map((h) => (
+                {history.map((h) => {
+                  const isTeam = h.type === 'TEAM';
+                  const Icon = isTeam ? Users : UserIcon;
+                  const iconStyle = isTeam ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600';
+                  return (
+                    <Link
+                      key={h.id + h.timestamp}
+                      to={isTeam ? `/calendar/${h.id}` : `/user/${h.id}`}
+                      className="flex items-center justify-between px-4 py-2 text-sm text-slate-500 hover:text-brand-600 hover:bg-gray-50 rounded-md group"
+                    >
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className={`p-1 rounded ${iconStyle}`}>
+                          <Icon size={12} />
+                        </span>
+                        <span className="truncate max-w-[140px]">{h.name}</span>
+                      </span>
+                      <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Favorites Section */}
+          {favoriteTeams.length > 0 && (
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <div className="flex items-center justify-between px-4 mb-3">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  Favorites
+                </h3>
+                <Link to="/favorites-2" className="text-xs text-gray-400 hover:text-brand-600">
+                  More
+                </Link>
+              </div>
+              <div className="space-y-1">
+                {favoriteTeams.map((team) => (
                   <Link
-                    key={h.id + h.timestamp}
-                    to={h.type === 'TEAM' ? `/calendar/${h.id}` : `/user/${h.id}`}
+                    key={team.id}
+                    to={`/calendar/${team.id}`}
                     className="flex items-center justify-between px-4 py-2 text-sm text-slate-500 hover:text-brand-600 hover:bg-gray-50 rounded-md group"
                   >
-                    <span className="truncate max-w-[140px]">{h.name}</span>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="p-1 rounded bg-yellow-50 text-yellow-600">
+                        <Star size={12} />
+                      </span>
+                      <span className="truncate max-w-[140px]">{team.name}</span>
+                    </span>
                     <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                   </Link>
                 ))}

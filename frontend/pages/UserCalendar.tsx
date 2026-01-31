@@ -24,7 +24,7 @@ const UserCalendar: React.FC = () => {
       
       if (u) {
           // Add to history
-          api.history.add({ id: u.id, name: u.displayName, type: 'USER' });
+          await api.history.add({ id: u.id, name: u.displayName, type: 'USER' });
           const userLeaves = await api.leaves.getByUser(u.id);
           setLeaves(userLeaves);
       }

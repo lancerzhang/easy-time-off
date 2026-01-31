@@ -13,12 +13,21 @@ interface TeamData {
 const TeamCalendar: React.FC = () => {
   const { teamId } = useParams<{ teamId: string }>();
   const { showToast } = useToast();
+  const currentUser = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem('easy_timeoff_user');
+      return raw ? (JSON.parse(raw) as User) : null;
+    } catch {
+      return null;
+    }
+  }, []);
   
   const [team, setTeam] = useState<Team | null>(null);
   const [data, setData] = useState<TeamData[]>([]);
   const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date(2026, 1, 1)); // Default to Feb 2026 for demo
   const [favorites, setFavorites] = useState<string[]>([]);
+  const [teamOptions, setTeamOptions] = useState<{ id: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Hover State
@@ -47,6 +56,13 @@ const TeamCalendar: React.FC = () => {
     });
   }, [currentDate]);
 
+  const hoveredDateLabel = useMemo(() => {
+    if (!hoveredDateIso) return null;
+    const match = daysInMonth.find(d => d.iso === hoveredDateIso);
+    if (!match) return null;
+    return match.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }, [hoveredDateIso, daysInMonth]);
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -58,20 +74,66 @@ const TeamCalendar: React.FC = () => {
             setData(membersData);
             
             // Add to history
-            api.history.add({ id: t.id, name: t.name, type: 'TEAM' });
+            await api.history.add({ id: t.id, name: t.name, type: 'TEAM', userId: currentUser?.id });
         }
       }
       const h = await api.holidays.getYear(currentDate.getFullYear());
       setHolidays(h);
-      setFavorites(api.history.getFavorites());
+      const favs = await api.history.getFavorites(currentUser?.id);
+      setFavorites(favs);
       setLoading(false);
     };
     fetchData();
   }, [teamId, currentDate]);
 
-  const toggleFavorite = () => {
+  useEffect(() => {
+    const loadTeamOptions = async () => {
+      const teams = await api.team.getAll();
+      const favIds = await api.history.getFavorites(currentUser?.id);
+      let createdIds: string[] = [];
+      try {
+        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
+        const parsed = raw ? JSON.parse(raw) : [];
+        createdIds = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        createdIds = [];
+      }
+
+      const options: { id: string; label: string }[] = [];
+      const added = new Set<string>();
+      const addOption = (team: Team | undefined, label: string) => {
+        if (!team || added.has(team.id)) return;
+        options.push({ id: team.id, label });
+        added.add(team.id);
+      };
+
+      if (currentUser?.teamId) {
+        const myTeam = teams.find(t => t.id === currentUser.teamId);
+        addOption(myTeam, `My Team · ${myTeam?.name || 'Team'}`);
+      }
+
+      if (teamId) {
+        const activeTeam = teams.find(t => t.id === teamId);
+        addOption(activeTeam, `Current · ${activeTeam?.name || 'Team'}`);
+      }
+
+      teams
+        .filter(t => t.type === 'VIRTUAL' && createdIds.includes(t.id))
+        .forEach(t => addOption(t, `Created · ${t.name}`));
+
+      teams
+        .filter(t => t.type === 'VIRTUAL' && favIds.includes(t.id))
+        .forEach(t => addOption(t, `Favorite · ${t.name}`));
+
+      setTeamOptions(options);
+    };
+
+    loadTeamOptions();
+  }, [currentUser, teamId]);
+
+  const toggleFavorite = async () => {
     if (!teamId) return;
-    const newFavs = api.history.toggleFavorite(teamId);
+    const newFavs = await api.history.toggleFavorite(teamId, currentUser?.id);
     setFavorites(newFavs);
     const isFav = newFavs.includes(teamId);
     showToast(isFav ? 'Added to favorites' : 'Removed from favorites', 'success');
@@ -118,7 +180,7 @@ const TeamCalendar: React.FC = () => {
     
     // Base styles
     const cellBaseClass = `w-full h-full relative group cursor-pointer border-r border-gray-100 transition-colors duration-75 
-        ${isHoveredColumn ? 'bg-gray-50' : ''}
+        ${isHoveredColumn ? 'bg-brand-100' : ''}
     `;
 
     if (status?.type === 'HOLIDAY') {
@@ -194,6 +256,20 @@ const TeamCalendar: React.FC = () => {
                     <p className="text-sm text-slate-500 flex items-center gap-2">
                         {team.type === 'POD' ? 'Agile Pod' : 'Virtual Team'} • {filteredData.length} Members
                     </p>
+                    {teamOptions.length > 0 && (
+                        <div className="mt-2">
+                            <select
+                                aria-label="Switch team"
+                                value={teamId || ''}
+                                onChange={(e) => navigate(`/calendar/${e.target.value}`)}
+                                className="text-xs font-medium text-slate-600 bg-white border border-gray-200 rounded-md px-2 py-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                            >
+                                {teamOptions.map(option => (
+                                    <option key={option.id} value={option.id}>{option.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -259,6 +335,11 @@ const TeamCalendar: React.FC = () => {
 
         {/* Calendar Grid Container (Desktop & Tablet) */}
         <div className={`flex-1 bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex-col relative min-h-0 ${isMobileList ? 'hidden md:flex' : 'flex'}`}>
+            {hoveredDateLabel && (
+                <div className="absolute top-2 right-3 z-20 text-xs font-semibold text-slate-600 bg-white/90 border border-gray-200 rounded-full px-2 py-1 shadow-sm">
+                    {hoveredDateLabel}
+                </div>
+            )}
             <div className="overflow-auto custom-scrollbar flex-1">
                 <div className="inline-block min-w-full">
                     {/* Header Row */}
@@ -269,12 +350,13 @@ const TeamCalendar: React.FC = () => {
                         {daysInMonth.map(day => (
                             <div 
                                 key={day.iso} 
-                                className={`flex-1 min-w-[36px] p-2 text-center border-r border-gray-100 cursor-default transition-colors duration-75
+                                className={`flex-1 min-w-[36px] p-2 text-center border-r border-gray-100 cursor-default transition-colors duration-75 relative
                                     ${day.isWeekend ? 'bg-slate-50' : ''}
-                                    ${hoveredDateIso === day.iso ? 'bg-brand-50' : ''}
+                                    ${hoveredDateIso === day.iso ? 'bg-brand-100' : ''}
                                 `}
                                 onMouseEnter={() => setHoveredDateIso(day.iso)}
                                 onMouseLeave={() => setHoveredDateIso(null)}
+                                title={day.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             >
                                 <div className="text-[10px] text-gray-400 font-medium">{day.dayName}</div>
                                 <div className={`text-sm font-bold ${day.isWeekend ? 'text-gray-400' : 'text-slate-700'}`}>
@@ -287,9 +369,9 @@ const TeamCalendar: React.FC = () => {
                     {/* Data Rows */}
                     <div className="divide-y divide-gray-100">
                         {filteredData.map(member => (
-                            <div key={member.user.id} className="flex hover:bg-brand-50/10 transition-colors group/row">
+                            <div key={member.user.id} className="flex hover:bg-brand-100/40 transition-colors group/row">
                                 {/* Name Col */}
-                                <div className="sticky left-0 z-10 w-48 bg-white group-hover/row:bg-brand-50 border-r border-gray-200 p-3 flex items-center gap-3 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] transition-colors">
+                                <div className="sticky left-0 z-10 w-48 bg-white group-hover/row:bg-brand-100 border-r border-gray-200 p-3 flex items-center gap-3 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] transition-colors">
                                     <img src={member.user.avatar} className="w-8 h-8 rounded-full bg-gray-200" alt="" />
                                     <div className="min-w-0">
                                         <div className="text-sm font-medium text-slate-800 truncate">{member.user.displayName}</div>
@@ -304,6 +386,7 @@ const TeamCalendar: React.FC = () => {
                                         className="flex-1 min-w-[36px] h-14"
                                         onMouseEnter={() => setHoveredDateIso(day.iso)}
                                         onMouseLeave={() => setHoveredDateIso(null)}
+                                        title={day.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                     >
                                         {renderCell(day.iso, member.user, member.leaves, day.isWeekend, hoveredDateIso === day.iso)}
                                     </div>

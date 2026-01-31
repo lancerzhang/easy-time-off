@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, AlertCircle, Edit2, Calendar as CalendarIcon, ArrowRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Trash2, AlertCircle, Edit2, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../services/api';
 import { useToast } from '../components/ToastContext';
-import { LeaveRecord, DataSource, User, LeaveStatus } from '../types';
+import { LeaveRecord, DataSource, User, LeaveStatus, PublicHoliday } from '../types';
 
 const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const { showToast } = useToast();
@@ -19,10 +18,16 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [endDate, setEndDate] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
+  const [currentDate, setCurrentDate] = useState(new Date(2026, 1, 1)); // Default Feb 2026
 
   useEffect(() => {
     loadLeaves();
   }, [currentUser]);
+
+  useEffect(() => {
+    api.holidays.getYear(currentDate.getFullYear()).then(setHolidays);
+  }, [currentDate]);
 
   const loadLeaves = async () => {
     setLoading(true);
@@ -130,6 +135,44 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     }
   };
 
+  const calendarGrid = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDayOfMonth = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const startDay = firstDayOfMonth.getDay();
+
+    const days: { date: Date | null; iso: string; isToday: boolean }[] = [];
+    for (let i = 0; i < startDay; i++) {
+      days.push({ date: null, iso: `prev-${i}`, isToday: false });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = new Date(year, month, i);
+      const iso = d.toISOString().split('T')[0];
+      days.push({ date: d, iso, isToday: iso === today });
+    }
+
+    return days;
+  }, [currentDate]);
+
+  const changeMonth = (delta: number) => {
+    const newDate = new Date(currentDate);
+    newDate.setMonth(newDate.getMonth() + delta);
+    setCurrentDate(newDate);
+  };
+
+  const getDayStatus = (isoDate: string) => {
+    const holiday = holidays.find(h => h.date === isoDate && (h.country === 'ALL' || h.country === currentUser.country));
+    if (holiday) return { type: 'HOLIDAY', name: holiday.name };
+
+    const leave = leaves.find(l => isoDate >= l.startDate && isoDate <= l.endDate);
+    if (leave) return { type: 'LEAVE', source: leave.source, note: leave.note };
+
+    return null;
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
@@ -138,13 +181,6 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
           <p className="text-slate-500">Manage your upcoming and past leaves</p>
         </div>
         <div className="flex gap-3">
-             <Link 
-                to={`/user/${currentUser.id}`}
-                className="flex items-center gap-2 bg-white border border-gray-200 text-slate-700 hover:bg-gray-50 px-4 py-2 rounded-lg shadow-sm transition-all"
-             >
-                <CalendarIcon size={20} />
-                <span className="hidden sm:inline">View Calendar</span>
-             </Link>
             <button 
               onClick={openNewModal}
               className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg shadow-sm transition-all"
@@ -155,23 +191,56 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Annual Balance</p>
-            <p className="text-2xl font-bold text-slate-800">12.5 Days</p>
+      {/* Calendar */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-8">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <h2 className="text-lg font-bold text-slate-800">My Calendar</h2>
+          <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
+            <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-gray-100 rounded-md">
+              <ChevronLeft size={18} />
+            </button>
+            <span className="min-w-[140px] text-center font-semibold text-slate-700">
+              {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </span>
+            <button onClick={() => changeMonth(1)} className="p-2 hover:bg-gray-100 rounded-md">
+              <ChevronRight size={18} />
+            </button>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Upcoming</p>
-            <p className="text-2xl font-bold text-brand-600">
-                {leaves.filter(l => new Date(l.startDate) > new Date()).length} Requests
-            </p>
+
+        <div className="grid grid-cols-7 border-b border-gray-200 bg-gray-50">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+            <div key={d} className="py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              {d}
+            </div>
+          ))}
         </div>
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Pending Approval</p>
-            <p className="text-2xl font-bold text-orange-500">
-                {leaves.filter(l => l.status === LeaveStatus.PENDING).length} Requests
-            </p>
+
+        <div className="grid grid-cols-7 auto-rows-[90px] divide-x divide-gray-100">
+          {calendarGrid.map((day, i) => {
+            if (!day.date) return <div key={i} className="bg-gray-50/50 border-b border-gray-100" />;
+            const status = getDayStatus(day.iso);
+            return (
+              <div key={day.iso} className={`relative p-2 border-b border-gray-100 hover:bg-gray-50 transition-colors ${day.isToday ? 'bg-blue-50/30' : ''}`}>
+                <div className={`text-sm font-medium mb-1 ${day.isToday ? 'text-brand-600' : 'text-gray-700'}`}>
+                  {day.date.getDate()}
+                </div>
+                {status && (
+                  <div
+                    className={`text-xs p-1.5 rounded border mb-1 truncate cursor-help
+                      ${status.type === 'HOLIDAY' ? 'bg-red-50 text-red-700 border-red-100' : ''}
+                      ${status.type === 'LEAVE' && status.source === DataSource.HR ? 'bg-brand-50 text-brand-700 border-brand-100' : ''}
+                      ${status.type === 'LEAVE' && status.source === DataSource.MANUAL ? 'bg-green-50 text-green-700 border-green-100' : ''}
+                      ${status.type === 'LEAVE' && status.source === DataSource.OUTLOOK ? 'bg-blue-50 text-blue-700 border-blue-100 dashed-border' : ''}
+                    `}
+                    title={status.type === 'HOLIDAY' ? status.name : status.note || 'On Leave'}
+                  >
+                    {status.type === 'HOLIDAY' ? status.name : status.note || 'On Leave'}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

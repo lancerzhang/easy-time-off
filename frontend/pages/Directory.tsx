@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, User as UserIcon, Users, Plus, Trash2, ChevronRight, Check, Edit2 } from 'lucide-react';
+import { Search, Users, Plus, Trash2, Check, Edit2 } from 'lucide-react';
 import { api } from '../services/api';
 import { User, Team } from '../types';
 
 const Directory: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'people' | 'teams'>('people');
   const [searchQuery, setSearchQuery] = useState('');
-  const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -20,7 +18,7 @@ const Directory: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [activeTab, searchQuery]);
+  }, [searchQuery]);
 
   // Load all users for the modal once
   useEffect(() => {
@@ -29,13 +27,22 @@ const Directory: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
-    if (activeTab === 'people') {
-      const res = await api.search.users(searchQuery);
-      setUsers(res);
-    } else {
-      const res = await api.search.teams(searchQuery);
-      setTeams(res);
+    const allTeams = await api.team.getAll();
+    const lower = searchQuery.toLowerCase();
+    let createdIds: string[] = [];
+    try {
+      const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
+      const parsed = raw ? JSON.parse(raw) : [];
+      createdIds = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      createdIds = [];
     }
+
+    const virtualTeams = allTeams.filter(t => t.type === 'VIRTUAL' && createdIds.includes(t.id));
+    const filteredTeams = searchQuery
+      ? virtualTeams.filter(t => t.name.toLowerCase().includes(lower))
+      : virtualTeams;
+    setTeams(filteredTeams);
     setLoading(false);
   };
 
@@ -69,7 +76,14 @@ const Directory: React.FC = () => {
         await api.team.saveVirtualTeam(team);
     } else {
         // Create
-        await api.team.createVirtualTeam(teamName, selectedMembers);
+        const created = await api.team.createVirtualTeam(teamName, selectedMembers);
+        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
+        const parsed = raw ? JSON.parse(raw) : [];
+        const list = Array.isArray(parsed) ? parsed : [];
+        if (!list.includes(created.id)) {
+            list.push(created.id);
+            localStorage.setItem('easy_timeoff_created_virtual_teams', JSON.stringify(list));
+        }
     }
 
     setIsModalOpen(false);
@@ -82,6 +96,10 @@ const Directory: React.FC = () => {
     e.preventDefault(); // Prevent navigation
     if (confirm('Are you sure you want to delete this virtual team?')) {
         await api.team.deleteVirtualTeam(id);
+        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
+        const parsed = raw ? JSON.parse(raw) : [];
+        const list = Array.isArray(parsed) ? parsed : [];
+        localStorage.setItem('easy_timeoff_created_virtual_teams', JSON.stringify(list.filter(teamId => teamId !== id)));
         loadData();
     }
   };
@@ -98,36 +116,16 @@ const Directory: React.FC = () => {
     <div className="max-w-5xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Directory</h1>
-          <p className="text-slate-500">Find colleagues and manage teams</p>
+          <h1 className="text-2xl font-bold text-slate-800">Manage Teams</h1>
+          <p className="text-slate-500">Create and manage your virtual teams</p>
         </div>
         
-        {activeTab === 'teams' && (
-             <button 
-                onClick={openNewModal}
-                className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg shadow-sm transition-all"
-             >
-                <Plus size={18} />
-                Create Virtual Team
-             </button>
-        )}
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
         <button 
-            onClick={() => setActiveTab('people')}
-            className={`px-6 py-3 font-medium text-sm transition-colors relative ${activeTab === 'people' ? 'text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
+          onClick={openNewModal}
+          className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg shadow-sm transition-all"
         >
-            <span className="flex items-center gap-2"><UserIcon size={16} /> People</span>
-            {activeTab === 'people' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600"></div>}
-        </button>
-        <button 
-            onClick={() => setActiveTab('teams')}
-            className={`px-6 py-3 font-medium text-sm transition-colors relative ${activeTab === 'teams' ? 'text-brand-600' : 'text-gray-500 hover:text-gray-700'}`}
-        >
-             <span className="flex items-center gap-2"><Users size={16} /> Teams</span>
-             {activeTab === 'teams' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600"></div>}
+          <Plus size={18} />
+          Create Virtual Team
         </button>
       </div>
 
@@ -136,7 +134,7 @@ const Directory: React.FC = () => {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
         <input 
             type="text" 
-            placeholder={`Search ${activeTab === 'people' ? 'by name, email, or employee ID' : 'teams'}...`}
+            placeholder="Search your virtual teams..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none shadow-sm"
@@ -148,76 +146,54 @@ const Directory: React.FC = () => {
         {loading ? (
             <div className="text-center py-10 text-gray-400">Loading...</div>
         ) : (
-            <>
-                {activeTab === 'people' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {users.map(user => (
-                            <div key={user.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4 hover:border-brand-200 transition-colors group">
-                                <img src={user.avatar} className="w-12 h-12 rounded-full bg-gray-200" alt="" />
-                                <div className="flex-1 min-w-0">
-                                    <h3 className="font-semibold text-slate-800 truncate">{user.displayName}</h3>
-                                    <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                                    <p className="text-[10px] text-gray-400 mt-1 uppercase tracking-wide">{user.employeeID} • {user.country}</p>
-                                </div>
-                                <Link to={`/user/${user.id}`} className="p-2 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
-                                    <ChevronRight size={20} />
-                                </Link>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {teams.map(team => (
+                    <Link to={`/calendar/${team.id}`} key={team.id} className="block bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-brand-200 transition-all group relative">
+                        <div className="flex justify-between items-start mb-2">
+                            <div className="p-2 rounded-lg bg-pink-100 text-pink-700">
+                                <Users size={20} />
                             </div>
-                        ))}
-                         {users.length === 0 && <div className="col-span-full text-center py-10 text-gray-500">No users found.</div>}
-                    </div>
-                )}
-
-                {activeTab === 'teams' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {teams.map(team => (
-                            <Link to={`/calendar/${team.id}`} key={team.id} className="block bg-white p-5 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-brand-200 transition-all group relative">
-                                <div className="flex justify-between items-start mb-2">
-                                    <div className={`p-2 rounded-lg ${team.type === 'POD' ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700'}`}>
-                                        <Users size={20} />
-                                    </div>
-                                    {team.type === 'VIRTUAL' && (
-                                        <div className="flex gap-1">
-                                             <button 
-                                                onClick={(e) => openEditModal(team, e)}
-                                                className="p-1.5 text-gray-300 hover:text-brand-600 hover:bg-brand-50 rounded-md transition-colors"
-                                                title="Edit Team"
-                                            >
-                                                <Edit2 size={16} />
-                                            </button>
-                                            <button 
-                                                onClick={(e) => handleDeleteTeam(team.id, e)}
-                                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                                                title="Delete Team"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
-                                    )}
+                            <div className="flex gap-1">
+                                 <button 
+                                    onClick={(e) => openEditModal(team, e)}
+                                    className="p-1.5 text-gray-300 hover:text-brand-600 hover:bg-brand-50 rounded-md transition-colors"
+                                    title="Edit Team"
+                                >
+                                    <Edit2 size={16} />
+                                </button>
+                                <button 
+                                    onClick={(e) => handleDeleteTeam(team.id, e)}
+                                    className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                    title="Delete Team"
+                                >
+                                    <Trash2 size={16} />
+                                </button>
+                            </div>
+                        </div>
+                        <h3 className="font-bold text-slate-800 mb-1 group-hover:text-brand-600 transition-colors">{team.name}</h3>
+                        <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">
+                            Virtual Team
+                        </p>
+                        <div className="flex items-center -space-x-2">
+                            {team.memberIds.slice(0, 4).map((uid, i) => (
+                                <div key={i} className="w-8 h-8 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center text-[10px] text-gray-600">
+                                    {uid.substring(0,2)}
                                 </div>
-                                <h3 className="font-bold text-slate-800 mb-1 group-hover:text-brand-600 transition-colors">{team.name}</h3>
-                                <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-3">
-                                    {team.type === 'POD' ? 'Agile Pod' : 'Virtual Team'}
-                                </p>
-                                <div className="flex items-center -space-x-2">
-                                    {team.memberIds.slice(0, 4).map((uid, i) => (
-                                        <div key={i} className="w-8 h-8 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center text-[10px] text-gray-600">
-                                            {/* Ideally fetch avatars, using placeholder for speed */}
-                                            {uid.substring(0,2)}
-                                        </div>
-                                    ))}
-                                    {team.memberIds.length > 4 && (
-                                        <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center text-[10px] font-medium text-gray-600">
-                                            +{team.memberIds.length - 4}
-                                        </div>
-                                    )}
+                            ))}
+                            {team.memberIds.length > 4 && (
+                                <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-white flex items-center justify-center text-[10px] font-medium text-gray-600">
+                                    +{team.memberIds.length - 4}
                                 </div>
-                            </Link>
-                        ))}
-                         {teams.length === 0 && <div className="col-span-full text-center py-10 text-gray-500">No teams found.</div>}
+                            )}
+                        </div>
+                    </Link>
+                ))}
+                 {teams.length === 0 && (
+                    <div className="col-span-full text-center py-10 text-gray-500">
+                        No virtual teams created yet.
                     </div>
-                )}
-            </>
+                 )}
+            </div>
         )}
       </div>
 

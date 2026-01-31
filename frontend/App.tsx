@@ -6,7 +6,8 @@ import MyLeaves from './pages/MyLeaves';
 import TeamCalendar from './pages/TeamCalendar';
 import Directory from './pages/Directory';
 import UserCalendar from './pages/UserCalendar';
-import Settings from './pages/Settings';
+import History from './pages/History';
+import Favorites2 from './pages/Favorites2';
 import Login from './pages/Login';
 import { ToastProvider } from './components/ToastContext';
 import { User } from './types';
@@ -46,7 +47,8 @@ const App: React.FC = () => {
             <Route path="/directory" element={<Directory />} />
             <Route path="/calendar/:teamId" element={<TeamCalendar />} />
             <Route path="/user/:userId" element={<UserCalendar />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/history" element={<History />} />
+            <Route path="/favorites-2" element={<Favorites2 />} />
             <Route path="*" element={<div className="p-8">Page under construction</div>} />
           </Routes>
         </Layout>
