@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
 import { api } from '../services/api';
 import { User, LeaveRecord, DataSource, PublicHoliday } from '../types';
+import { parseISODate, toLocalISODate } from '../utils/date';
 
 const UserCalendar: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -54,10 +55,10 @@ const UserCalendar: React.FC = () => {
     }
 
     // Days of current month
-    const today = new Date().toISOString().split('T')[0];
+    const today = toLocalISODate(new Date());
     for (let i = 1; i <= daysInMonth; i++) {
         const d = new Date(year, month, i);
-        const iso = d.toISOString().split('T')[0];
+        const iso = toLocalISODate(d);
         days.push({ 
             date: d, 
             iso,
@@ -114,7 +115,7 @@ const UserCalendar: React.FC = () => {
             <div className="md:ml-auto border-l border-gray-200 pl-6 hidden md:block">
                 <div className="text-sm text-gray-500">Upcoming Leave</div>
                 <div className="text-2xl font-bold text-brand-600">
-                    {leaves.filter(l => new Date(l.startDate) > new Date()).length} <span className="text-sm font-normal text-gray-400">requests</span>
+                    {leaves.filter(l => parseISODate(l.startDate) > new Date()).length} <span className="text-sm font-normal text-gray-400">requests</span>
                 </div>
             </div>
         </div>

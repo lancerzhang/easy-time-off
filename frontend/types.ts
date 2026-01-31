@@ -25,6 +25,13 @@ export interface Team {
   name: string;
   type: 'POD' | 'VIRTUAL';
   memberIds: string[];
+  createdBy?: string;
+}
+
+export interface Pod {
+  id: string;
+  name: string;
+  memberIds: string[];
 }
 
 export interface LeaveRecord {
@@ -46,7 +53,7 @@ export interface PublicHoliday {
 
 export interface ViewHistoryItem {
   id: string;
-  type: 'USER' | 'TEAM';
+  type: 'USER' | 'TEAM' | 'POD';
   name: string;
   timestamp: number;
 }

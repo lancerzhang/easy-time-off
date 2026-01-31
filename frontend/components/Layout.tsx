@@ -15,8 +15,9 @@ import {
   LayoutDashboard,
   Star
 } from 'lucide-react';
-import { User, ViewHistoryItem, Team } from '../types';
+import { User, Team } from '../types';
 import { api } from '../services/api';
+import { useSidebarData } from './SidebarDataContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -26,10 +27,10 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [history, setHistory] = useState<ViewHistoryItem[]>([]);
-  const [favoriteTeams, setFavoriteTeams] = useState<Team[]>([]);
   const location = useLocation();
   const navigate = useNavigate();
+  const { history, favoriteTeams, refresh } = useSidebarData();
+  const didInit = useRef(false);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,24 +39,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
   const searchRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Refresh history when menu opens or location changes
-    const loadSidebarData = async () => {
-      if (!user?.id) return;
-      const [historyItems, favIds] = await Promise.all([
-        api.history.get(user.id),
-        api.history.getFavorites(user.id)
-      ]);
-      setHistory(historyItems);
-      if (favIds.length === 0) {
-        setFavoriteTeams([]);
-        return;
-      }
-      const teams = await api.team.getAll();
-      setFavoriteTeams(teams.filter(t => favIds.includes(t.id)));
-    };
     setIsMobileMenuOpen(false); // Close mobile menu on nav
-    loadSidebarData();
-  }, [location, user]);
+    if (!didInit.current) {
+      didInit.current = true;
+      return;
+    }
+    refresh();
+  }, [location, refresh]);
 
   // Click outside to close search
   useEffect(() => {
@@ -95,7 +85,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     { label: 'Team Calendar', path: '/calendar/pod1', icon: Calendar }, 
     { label: 'Manage Teams', path: '/directory', icon: Briefcase },
     { label: 'History', path: '/history', icon: History },
-    { label: 'Favorites 2', path: '/favorites-2', icon: Star },
+    { label: 'Favorites', path: '/favorite', icon: Star },
   ];
 
   return (
@@ -153,7 +143,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
               </div>
               <div className="space-y-1">
                 {history.map((h) => {
-                  const isTeam = h.type === 'TEAM';
+                  const isTeam = h.type !== 'USER';
                   const Icon = isTeam ? Users : UserIcon;
                   const iconStyle = isTeam ? 'bg-indigo-50 text-indigo-600' : 'bg-emerald-50 text-emerald-600';
                   return (
@@ -183,7 +173,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                   Favorites
                 </h3>
-                <Link to="/favorites-2" className="text-xs text-gray-400 hover:text-brand-600">
+                <Link to="/favorite" className="text-xs text-gray-400 hover:text-brand-600">
                   More
                 </Link>
               </div>

@@ -4,7 +4,7 @@ import { Search, Users, Plus, Trash2, Check, Edit2 } from 'lucide-react';
 import { api } from '../services/api';
 import { User, Team } from '../types';
 
-const Directory: React.FC = () => {
+const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,18 +27,9 @@ const Directory: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
-    const allTeams = await api.team.getAll();
+    const allTeams = await api.team.getCreatedByUser(currentUser.id);
     const lower = searchQuery.toLowerCase();
-    let createdIds: string[] = [];
-    try {
-      const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
-      const parsed = raw ? JSON.parse(raw) : [];
-      createdIds = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      createdIds = [];
-    }
-
-    const virtualTeams = allTeams.filter(t => t.type === 'VIRTUAL' && createdIds.includes(t.id));
+    const virtualTeams = allTeams.filter(t => t.type === 'VIRTUAL');
     const filteredTeams = searchQuery
       ? virtualTeams.filter(t => t.name.toLowerCase().includes(lower))
       : virtualTeams;
@@ -71,19 +62,13 @@ const Directory: React.FC = () => {
             id: editingTeamId,
             name: teamName,
             type: 'VIRTUAL',
-            memberIds: selectedMembers
+            memberIds: selectedMembers,
+            createdBy: currentUser.id
         };
         await api.team.saveVirtualTeam(team);
     } else {
         // Create
-        const created = await api.team.createVirtualTeam(teamName, selectedMembers);
-        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
-        const parsed = raw ? JSON.parse(raw) : [];
-        const list = Array.isArray(parsed) ? parsed : [];
-        if (!list.includes(created.id)) {
-            list.push(created.id);
-            localStorage.setItem('easy_timeoff_created_virtual_teams', JSON.stringify(list));
-        }
+        await api.team.createVirtualTeam(teamName, selectedMembers, currentUser.id);
     }
 
     setIsModalOpen(false);
@@ -96,10 +81,6 @@ const Directory: React.FC = () => {
     e.preventDefault(); // Prevent navigation
     if (confirm('Are you sure you want to delete this virtual team?')) {
         await api.team.deleteVirtualTeam(id);
-        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
-        const parsed = raw ? JSON.parse(raw) : [];
-        const list = Array.isArray(parsed) ? parsed : [];
-        localStorage.setItem('easy_timeoff_created_virtual_teams', JSON.stringify(list.filter(teamId => teamId !== id)));
         loadData();
     }
   };

@@ -1,5 +1,5 @@
-import { LeaveRecord, Team, User, ViewHistoryItem, PublicHoliday } from '../types';
-import { MOCK_USERS, MOCK_TEAMS, MOCK_LEAVES, PUBLIC_HOLIDAYS_2026 } from '../constants';
+import { LeaveRecord, Team, Pod, User, ViewHistoryItem, PublicHoliday } from '../types';
+import { MOCK_USERS, MOCK_TEAMS, MOCK_PODS, MOCK_LEAVES, PUBLIC_HOLIDAYS_2026 } from '../constants';
 
 const API_BASE = 'http://localhost:8080/api';
 const USE_MOCK_FALLBACK = true;
@@ -74,9 +74,14 @@ export const api = {
 
   team: {
     getAll: async (): Promise<Team[]> => {
-        const res = await request<Team[]>('/teams');
+        const res = await request<Team[]>('/teams?type=VIRTUAL');
         if (res) return res;
         return mockDelay(MOCK_TEAMS);
+    },
+    getCreatedByUser: async (userId: string): Promise<Team[]> => {
+        const res = await request<Team[]>(`/teams?createdBy=${encodeURIComponent(userId)}&type=VIRTUAL`);
+        if (res) return res;
+        return mockDelay(MOCK_TEAMS.filter(t => t.createdBy === userId));
     },
     getById: async (id: string): Promise<Team | undefined> => {
         const res = await request<Team>(`/teams/${id}`);
@@ -97,14 +102,14 @@ export const api = {
         return mockDelay(team);
     },
     
-    createVirtualTeam: async (name: string, memberIds: string[]): Promise<Team> => {
+    createVirtualTeam: async (name: string, memberIds: string[], createdBy?: string): Promise<Team> => {
         const res = await request<Team>('/teams', {
             method: 'POST',
-            body: JSON.stringify({ name, type: 'VIRTUAL', memberIds })
+            body: JSON.stringify({ name, type: 'VIRTUAL', memberIds, createdBy })
         });
         if (res) return res;
         
-        const newTeam: Team = { id: `vt_${Date.now()}`, name, type: 'VIRTUAL', memberIds };
+        const newTeam: Team = { id: `vt_${Date.now()}`, name, type: 'VIRTUAL', memberIds, createdBy };
         MOCK_TEAMS.push(newTeam);
         return mockDelay(newTeam);
     },
@@ -116,6 +121,19 @@ export const api = {
         const idx = MOCK_TEAMS.findIndex(t => t.id === id);
         if (idx >= 0) MOCK_TEAMS.splice(idx, 1);
         return mockDelay(undefined);
+    }
+  },
+
+  pod: {
+    getAll: async (): Promise<Pod[]> => {
+        const res = await request<Pod[]>('/pods');
+        if (res) return res;
+        return mockDelay(MOCK_PODS);
+    },
+    getById: async (id: string): Promise<Pod | undefined> => {
+        const res = await request<Pod>(`/pods/${id}`);
+        if (res) return res;
+        return mockDelay(MOCK_PODS.find(p => p.id === id));
     }
   },
 
@@ -164,6 +182,42 @@ export const api = {
             leaves: leaves.filter(l => l.userId === user.id)
         })));
         
+      } catch (e) {
+        return [];
+      }
+    },
+    getByPod: async (podId: string, pod?: Pod): Promise<{ user: User, leaves: LeaveRecord[] }[]> => {
+      try {
+        const podRes = pod ?? await request<Pod>(`/pods/${podId}`);
+
+        if (podRes) {
+            if (!podRes.memberIds || podRes.memberIds.length === 0) return [];
+            const idsParam = podRes.memberIds.join(',');
+
+            const [members, leaves] = await Promise.all([
+                request<User[]>(`/users?ids=${idsParam}`),
+                request<LeaveRecord[]>(`/leaves?userIds=${idsParam}`)
+            ]);
+
+            if (members && leaves) {
+                return members.map(user => ({
+                   user,
+                   leaves: leaves.filter(l => l.userId === user.id)
+                }));
+            }
+        }
+
+        const mockPod = MOCK_PODS.find(p => p.id === podId);
+        if (!mockPod) return [];
+
+        const members = MOCK_USERS.filter(u => mockPod.memberIds.includes(u.id));
+        const leaves = MOCK_LEAVES.filter(l => mockPod.memberIds.includes(l.userId));
+
+        return mockDelay(members.map(user => ({
+            user,
+            leaves: leaves.filter(l => l.userId === user.id)
+        })));
+
       } catch (e) {
         return [];
       }

@@ -10,4 +10,7 @@ import java.util.List;
 public interface TeamRepository extends JpaRepository<Team, String> {
     
     List<Team> findByNameContainingIgnoreCase(String name);
+    List<Team> findByType(Team.TeamType type);
+    List<Team> findByCreatedBy(String createdBy);
+    List<Team> findByTypeAndCreatedBy(Team.TeamType type, String createdBy);
 }

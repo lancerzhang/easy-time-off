@@ -17,7 +17,20 @@ public class TeamController {
     private final TeamRepository teamRepository;
 
     @GetMapping
-    public List<Team> getAll(@RequestParam(required = false) String query) {
+    public List<Team> getAll(
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) String createdBy,
+            @RequestParam(required = false) Team.TeamType type
+    ) {
+        if (createdBy != null && !createdBy.isEmpty() && type != null) {
+            return teamRepository.findByTypeAndCreatedBy(type, createdBy);
+        }
+        if (createdBy != null && !createdBy.isEmpty()) {
+            return teamRepository.findByCreatedBy(createdBy);
+        }
+        if (type != null) {
+            return teamRepository.findByType(type);
+        }
         if (query != null && !query.isEmpty()) {
             return teamRepository.findByNameContainingIgnoreCase(query);
         }

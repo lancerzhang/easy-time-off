@@ -3,7 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Star, Share2, Users, Check, Calendar as CalendarIcon, Filter, List, Grid3X3 } from 'lucide-react';
 import { api } from '../services/api';
 import { useToast } from '../components/ToastContext';
-import { Team, User, LeaveRecord, DataSource, PublicHoliday } from '../types';
+import { Team, User, LeaveRecord, DataSource, PublicHoliday, Pod } from '../types';
+import { parseISODate, toLocalISODate } from '../utils/date';
+import { useSidebarData } from '../components/SidebarDataContext';
 
 interface TeamData {
   user: User;
@@ -12,6 +14,7 @@ interface TeamData {
 
 const TeamCalendar: React.FC = () => {
   const { teamId } = useParams<{ teamId: string }>();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const currentUser = useMemo(() => {
     try {
@@ -22,13 +25,18 @@ const TeamCalendar: React.FC = () => {
     }
   }, []);
   
-  const [team, setTeam] = useState<Team | null>(null);
+  const [activeGroup, setActiveGroup] = useState<{ type: 'TEAM' | 'POD'; id: string; name: string; memberIds: string[] } | null>(null);
   const [data, setData] = useState<TeamData[]>([]);
   const [holidays, setHolidays] = useState<PublicHoliday[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date(2026, 1, 1)); // Default to Feb 2026 for demo
-  const [favorites, setFavorites] = useState<string[]>([]);
-  const [teamOptions, setTeamOptions] = useState<{ id: string; label: string }[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [teamOptions, setTeamOptions] = useState<{ id: string; label: string; type: 'POD' | 'TEAM' }[]>([]);
+  const [loadingGroup, setLoadingGroup] = useState(true);
+  const [loadingHolidays, setLoadingHolidays] = useState(true);
+  const [currentUserPod, setCurrentUserPod] = useState<Pod | null>(null);
+  const [createdTeams, setCreatedTeams] = useState<Team[]>([]);
+  const [userPodLoaded, setUserPodLoaded] = useState(false);
+  const { favoriteTeams, favoriteTeamIds, toggleFavorite: toggleFavoriteTeam } = useSidebarData();
+  const loading = loadingGroup || loadingHolidays;
   
   // Hover State
   const [hoveredDateIso, setHoveredDateIso] = useState<string | null>(null);
@@ -48,7 +56,7 @@ const TeamCalendar: React.FC = () => {
       const d = new Date(year, month, i + 1);
       return {
         date: d,
-        iso: d.toISOString().split('T')[0],
+        iso: toLocalISODate(d),
         dayNum: i + 1,
         dayName: d.toLocaleDateString('en-US', { weekday: 'narrow' }), // M, T, W
         isWeekend: d.getDay() === 0 || d.getDay() === 6
@@ -64,77 +72,133 @@ const TeamCalendar: React.FC = () => {
   }, [hoveredDateIso, daysInMonth]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      if (teamId) {
+    const fetchGroup = async () => {
+      if (!teamId) {
+        setActiveGroup(null);
+        setData([]);
+        setLoadingGroup(false);
+        return;
+      }
+
+      const isCurrentUserPodRoute = teamId === currentUser?.teamId;
+      if (isCurrentUserPodRoute && !userPodLoaded) {
+        setLoadingGroup(true);
+        return;
+      }
+
+      setLoadingGroup(true);
+
+      const loadTeam = async () => {
         const t = await api.team.getById(teamId);
-        if (t) {
-            setTeam(t);
-            const membersData = await api.leaves.getByTeam(t.id);
-            setData(membersData);
-            
-            // Add to history
-            await api.history.add({ id: t.id, name: t.name, type: 'TEAM', userId: currentUser?.id });
-        }
-      }
-      const h = await api.holidays.getYear(currentDate.getFullYear());
-      setHolidays(h);
-      const favs = await api.history.getFavorites(currentUser?.id);
-      setFavorites(favs);
-      setLoading(false);
-    };
-    fetchData();
-  }, [teamId, currentDate]);
-
-  useEffect(() => {
-    const loadTeamOptions = async () => {
-      const teams = await api.team.getAll();
-      const favIds = await api.history.getFavorites(currentUser?.id);
-      let createdIds: string[] = [];
-      try {
-        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
-        const parsed = raw ? JSON.parse(raw) : [];
-        createdIds = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        createdIds = [];
-      }
-
-      const options: { id: string; label: string }[] = [];
-      const added = new Set<string>();
-      const addOption = (team: Team | undefined, label: string) => {
-        if (!team || added.has(team.id)) return;
-        options.push({ id: team.id, label });
-        added.add(team.id);
+        if (!t) return false;
+        setActiveGroup({ type: 'TEAM', id: t.id, name: t.name, memberIds: t.memberIds });
+        const membersData = await api.leaves.getByTeam(t.id);
+        setData(membersData);
+        await api.history.add({ id: t.id, name: t.name, type: 'TEAM', userId: currentUser?.id });
+        return true;
       };
 
-      if (currentUser?.teamId) {
-        const myTeam = teams.find(t => t.id === currentUser.teamId);
-        addOption(myTeam, `My Team · ${myTeam?.name || 'Team'}`);
+      const loadPod = async () => {
+        if (isCurrentUserPodRoute) {
+          if (currentUserPod) {
+            setActiveGroup({ type: 'POD', id: currentUserPod.id, name: currentUserPod.name, memberIds: currentUserPod.memberIds });
+            const membersData = await api.leaves.getByPod(currentUserPod.id, currentUserPod);
+            setData(membersData);
+            await api.history.add({ id: currentUserPod.id, name: currentUserPod.name, type: 'POD', userId: currentUser?.id });
+            return true;
+          }
+          if (userPodLoaded && !currentUserPod) return false;
+        }
+        const p = await api.pod.getById(teamId);
+        if (!p) return false;
+        setActiveGroup({ type: 'POD', id: p.id, name: p.name, memberIds: p.memberIds });
+        const membersData = await api.leaves.getByPod(p.id, p);
+        setData(membersData);
+        await api.history.add({ id: p.id, name: p.name, type: 'POD', userId: currentUser?.id });
+        return true;
+      };
+
+      const looksLikePod = teamId.toLowerCase().startsWith('pod');
+      const found = looksLikePod ? await loadPod() : await loadTeam();
+      if (!found) {
+        const fallbackFound = looksLikePod ? await loadTeam() : await loadPod();
+        if (!fallbackFound) {
+          setActiveGroup(null);
+          setData([]);
+        }
       }
+      setLoadingGroup(false);
+    };
+    fetchGroup();
+  }, [teamId, currentUser?.id, currentUser?.teamId, currentUserPod, userPodLoaded]);
 
-      if (teamId) {
-        const activeTeam = teams.find(t => t.id === teamId);
-        addOption(activeTeam, `Current · ${activeTeam?.name || 'Team'}`);
+  useEffect(() => {
+    const loadUserPod = async () => {
+      setUserPodLoaded(false);
+      if (!currentUser?.teamId) {
+        setCurrentUserPod(null);
+        setUserPodLoaded(true);
+        return;
       }
+      const pod = await api.pod.getById(currentUser.teamId);
+      setCurrentUserPod(pod || null);
+      setUserPodLoaded(true);
+    };
+    loadUserPod();
+  }, [currentUser?.teamId]);
 
-      teams
-        .filter(t => t.type === 'VIRTUAL' && createdIds.includes(t.id))
-        .forEach(t => addOption(t, `Created · ${t.name}`));
+  useEffect(() => {
+    const loadCreatedTeams = async () => {
+      if (!currentUser?.id) {
+        setCreatedTeams([]);
+        return;
+      }
+      const teams = await api.team.getCreatedByUser(currentUser.id);
+      setCreatedTeams(teams);
+    };
+    loadCreatedTeams();
+  }, [currentUser?.id]);
 
-      teams
-        .filter(t => t.type === 'VIRTUAL' && favIds.includes(t.id))
-        .forEach(t => addOption(t, `Favorite · ${t.name}`));
-
-      setTeamOptions(options);
+  useEffect(() => {
+    const options: { id: string; label: string; type: 'POD' | 'TEAM' }[] = [];
+    const added = new Set<string>();
+    const addOption = (id: string | undefined, label: string, type: 'POD' | 'TEAM') => {
+      if (!id || added.has(id)) return;
+      options.push({ id, label, type });
+      added.add(id);
     };
 
-    loadTeamOptions();
-  }, [currentUser, teamId]);
+    if (currentUserPod) {
+      addOption(currentUserPod.id, `My Pod · ${currentUserPod.name}`, 'POD');
+    }
+
+    createdTeams
+      .filter(t => t.type === 'VIRTUAL')
+      .forEach(t => addOption(t.id, `Created · ${t.name}`, 'TEAM'));
+
+    favoriteTeams.forEach(t => addOption(t.id, `Favorite · ${t.name}`, 'TEAM'));
+
+    if (activeGroup && !added.has(activeGroup.id)) {
+      addOption(activeGroup.id, `Current · ${activeGroup.name}`, activeGroup.type);
+    }
+
+    setTeamOptions(options);
+  }, [currentUserPod, createdTeams, favoriteTeams, activeGroup]);
+
+  const currentYear = currentDate.getFullYear();
+  useEffect(() => {
+    const loadHolidays = async () => {
+      setLoadingHolidays(true);
+      const h = await api.holidays.getYear(currentYear);
+      setHolidays(h);
+      setLoadingHolidays(false);
+    };
+    loadHolidays();
+  }, [currentYear]);
 
   const toggleFavorite = async () => {
-    if (!teamId) return;
-    const newFavs = await api.history.toggleFavorite(teamId, currentUser?.id);
-    setFavorites(newFavs);
+    if (!teamId || activeGroup?.type !== 'TEAM') return;
+    const newFavs = await toggleFavoriteTeam(teamId);
     const isFav = newFavs.includes(teamId);
     showToast(isFav ? 'Added to favorites' : 'Removed from favorites', 'success');
   };
@@ -234,27 +298,29 @@ const TeamCalendar: React.FC = () => {
       );
   }
   
-  if (!team) return <div className="p-10 text-center text-red-500">Team not found</div>;
+  if (!activeGroup) return <div className="p-10 text-center text-red-500">Team or Pod not found</div>;
 
   return (
     <div className="flex flex-col h-full">
         {/* Header */}
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 gap-4 shrink-0">
             <div className="flex items-center gap-3">
-                <div className={`p-2 rounded-lg ${team.type === 'POD' ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700'}`}>
+                <div className={`p-2 rounded-lg ${activeGroup.type === 'POD' ? 'bg-indigo-100 text-indigo-700' : 'bg-pink-100 text-pink-700'}`}>
                     <Users size={24} />
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        {team.name}
-                        <button onClick={toggleFavorite} className="focus:outline-none transition-transform active:scale-95" title="Add to Favorites">
-                            <Star 
-                                className={`w-5 h-5 ${favorites.includes(team.id) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 hover:text-yellow-400'}`} 
-                            />
-                        </button>
+                        {activeGroup.name}
+                        {activeGroup.type === 'TEAM' && (
+                            <button onClick={toggleFavorite} className="focus:outline-none transition-transform active:scale-95" title="Add to Favorites">
+                                <Star 
+                                    className={`w-5 h-5 ${favoriteTeamIds.includes(activeGroup.id) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300 hover:text-yellow-400'}`} 
+                                />
+                            </button>
+                        )}
                     </h1>
                     <p className="text-sm text-slate-500 flex items-center gap-2">
-                        {team.type === 'POD' ? 'Agile Pod' : 'Virtual Team'} • {filteredData.length} Members
+                        {activeGroup.type === 'POD' ? 'Agile Pod' : 'Virtual Team'} • {filteredData.length} Members
                     </p>
                     {teamOptions.length > 0 && (
                         <div className="mt-2">
@@ -410,8 +476,8 @@ const TeamCalendar: React.FC = () => {
                 {filteredData.map(member => {
                     // Find leaves in this month
                     const currentMonthLeaves = member.leaves.filter(l => {
-                        const start = new Date(l.startDate);
-                        const end = new Date(l.endDate);
+                        const start = parseISODate(l.startDate);
+                        const end = parseISODate(l.endDate);
                         // Check intersection with current month
                         const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
                         const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
@@ -431,7 +497,7 @@ const TeamCalendar: React.FC = () => {
                                     <div key={l.id} className="text-sm bg-gray-50 p-2 rounded-md border border-gray-100 flex justify-between items-center">
                                         <div>
                                             <div className="font-medium text-slate-700">
-                                                {new Date(l.startDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})} - {new Date(l.endDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                                                {parseISODate(l.startDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})} - {parseISODate(l.endDate).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
                                             </div>
                                             <div className="text-xs text-gray-500">{l.note || 'On Leave'}</div>
                                         </div>
@@ -444,7 +510,7 @@ const TeamCalendar: React.FC = () => {
                         </div>
                     );
                 })}
-                {filteredData.every(m => m.leaves.filter(l => new Date(l.endDate) >= new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)).length === 0) && (
+                {filteredData.every(m => m.leaves.filter(l => parseISODate(l.endDate) >= new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)).length === 0) && (
                     <div className="text-center py-8 text-gray-400">
                         No leaves found for this month.
                     </div>

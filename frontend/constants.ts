@@ -1,4 +1,4 @@
-import { User, Team, LeaveRecord, DataSource, LeaveStatus, PublicHoliday } from './types';
+import { User, Team, Pod, LeaveRecord, DataSource, LeaveStatus, PublicHoliday } from './types';
 
 // --- Mock Users ---
 export const MOCK_USERS: User[] = [
@@ -13,9 +13,13 @@ export const CURRENT_USER_ID = 'u1'; // Auto-login as Alice
 
 // --- Mock Teams ---
 export const MOCK_TEAMS: Team[] = [
-  { id: 'pod1', name: 'Checkout Pod', type: 'POD', memberIds: ['u1', 'u2', 'u3'] },
-  { id: 'pod2', name: 'Inventory Pod', type: 'POD', memberIds: ['u4', 'u5'] },
-  { id: 'vt1', name: 'Backend Guild', type: 'VIRTUAL', memberIds: ['u2', 'u5'] },
+  { id: 'vt1', name: 'Backend Guild', type: 'VIRTUAL', memberIds: ['u2', 'u5'], createdBy: 'u1' },
+];
+
+// --- Mock Pods ---
+export const MOCK_PODS: Pod[] = [
+  { id: 'pod1', name: 'Checkout Pod', memberIds: ['u1', 'u2', 'u3'] },
+  { id: 'pod2', name: 'Inventory Pod', memberIds: ['u4', 'u5'] },
 ];
 
 // --- Mock Public Holidays (2026 Sample with Country) ---

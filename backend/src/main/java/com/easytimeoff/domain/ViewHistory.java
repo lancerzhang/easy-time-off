@@ -38,6 +38,6 @@ public class ViewHistory {
     private long timestamp;
 
     public enum ViewType {
-        USER, TEAM
+        USER, TEAM, POD
     }
 }

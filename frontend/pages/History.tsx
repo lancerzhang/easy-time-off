@@ -1,19 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
 import { Users, User as UserIcon, Clock } from 'lucide-react';
-import { api } from '../services/api';
-import { ViewHistoryItem } from '../types';
+import { useSidebarData } from '../components/SidebarDataContext';
 
 const History: React.FC = () => {
-  const [items, setItems] = useState<ViewHistoryItem[]>([]);
-
-  useEffect(() => {
-    const load = async () => {
-      const data = await api.history.get();
-      setItems(data);
-    };
-    load();
-  }, []);
+  const { history: items } = useSidebarData();
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -29,7 +20,8 @@ const History: React.FC = () => {
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
           {items.map(item => {
-            const isTeam = item.type === 'TEAM';
+            const isTeam = item.type !== 'USER';
+            const typeLabel = item.type === 'POD' ? 'Pod' : isTeam ? 'Team' : 'Person';
             const Icon = isTeam ? Users : UserIcon;
             const link = isTeam ? `/calendar/${item.id}` : `/user/${item.id}`;
             return (
@@ -44,7 +36,7 @@ const History: React.FC = () => {
                   </div>
                   <div className="min-w-0">
                     <div className="font-medium text-slate-800 truncate">{item.name}</div>
-                    <div className="text-xs text-gray-400">{isTeam ? 'Team' : 'Person'}</div>
+                    <div className="text-xs text-gray-400">{typeLabel}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-400">

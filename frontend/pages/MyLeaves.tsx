@@ -3,6 +3,7 @@ import { Plus, Trash2, AlertCircle, Edit2, Calendar as CalendarIcon, ChevronLeft
 import { api } from '../services/api';
 import { useToast } from '../components/ToastContext';
 import { LeaveRecord, DataSource, User, LeaveStatus, PublicHoliday } from '../types';
+import { parseISODate, toLocalISODate } from '../utils/date';
 
 const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const { showToast } = useToast();
@@ -33,7 +34,7 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     setLoading(true);
     const data = await api.leaves.getByUser(currentUser.id);
     // Sort desc date
-    setLeaves(data.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()));
+    setLeaves(data.sort((a, b) => parseISODate(b.startDate).getTime() - parseISODate(a.startDate).getTime()));
     setLoading(false);
   };
 
@@ -147,10 +148,10 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
       days.push({ date: null, iso: `prev-${i}`, isToday: false });
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = toLocalISODate(new Date());
     for (let i = 1; i <= daysInMonth; i++) {
       const d = new Date(year, month, i);
-      const iso = d.toISOString().split('T')[0];
+      const iso = toLocalISODate(d);
       days.push({ date: d, iso, isToday: iso === today });
     }
 
@@ -274,8 +275,8 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {leaves.map(leave => {
-                            const start = new Date(leave.startDate);
-                            const end = new Date(leave.endDate);
+                            const start = parseISODate(leave.startDate);
+                            const end = parseISODate(leave.endDate);
                             const diffTime = Math.abs(end.getTime() - start.getTime());
                             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
                             const isEditable = leave.userId === currentUser.id && leave.source === DataSource.MANUAL;

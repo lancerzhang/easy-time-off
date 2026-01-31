@@ -28,6 +28,9 @@ public class Team {
     @Column(nullable = false)
     private TeamType type;
 
+    @Column(name = "created_by")
+    private String createdBy;
+
     // Storing member IDs directly for simplicity in this specific "Easy" architecture 
     // to match the frontend JSON structure. 
     // In a strict Relational model, this would be a @ManyToMany with User.

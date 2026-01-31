@@ -2,25 +2,42 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Sun, Calendar, Users, Star, User as UserIcon, History } from 'lucide-react';
 import { api } from '../services/api';
-import { User, LeaveRecord, PublicHoliday, Team, ViewHistoryItem } from '../types';
+import { User, LeaveRecord, PublicHoliday, Team, Pod } from '../types';
+import { toLocalISODate } from '../utils/date';
+import { useSidebarData } from '../components/SidebarDataContext';
 
 const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const [absentToday, setAbsentToday] = useState<{ user: User; leave: LeaveRecord }[]>([]);
   const [upcomingHolidays, setUpcomingHolidays] = useState<PublicHoliday[]>([]);
-  const [teamOptions, setTeamOptions] = useState<{ id: string; label: string }[]>([]);
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(user.teamId || null);
-  const [recentViews, setRecentViews] = useState<ViewHistoryItem[]>([]);
-  const [favoriteTeams, setFavoriteTeams] = useState<Team[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [teamOptions, setTeamOptions] = useState<{ id: string; label: string; type: 'POD' | 'TEAM' }[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<{ id: string; type: 'POD' | 'TEAM' } | null>(
+    user.teamId ? { id: user.teamId, type: 'POD' } : null
+  );
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [loadingHolidays, setLoadingHolidays] = useState(true);
+  const [pod, setPod] = useState<Pod | null>(null);
+  const [createdTeams, setCreatedTeams] = useState<Team[]>([]);
+  const { history: recentViews, favoriteTeams } = useSidebarData();
+  const loading = loadingStatus || loadingHolidays;
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      // Team Status
-      if (selectedTeamId) {
-        const teamData = await api.leaves.getByTeam(selectedTeamId); // Returns {user, leaves}[]
-        const today = new Date().toISOString().split('T')[0];
+    const loadStatus = async () => {
+      if (!selectedGroup) {
+        setAbsentToday([]);
+        setLoadingStatus(false);
+        return;
+      }
 
+      if (selectedGroup.type === 'POD') {
+        if (!pod || pod.id !== selectedGroup.id) {
+          // Wait for pod data before requesting members/leaves
+          setAbsentToday([]);
+          setLoadingStatus(true);
+          return;
+        }
+        setLoadingStatus(true);
+        const teamData = await api.leaves.getByPod(selectedGroup.id, pod);
+        const today = toLocalISODate(new Date());
         const absent = teamData
           .filter(item => item.user.id !== user.id) // Exclude self
           .map(item => {
@@ -28,74 +45,81 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
             return activeLeave ? { user: item.user, leave: activeLeave } : null;
           })
           .filter(Boolean) as { user: User; leave: LeaveRecord }[];
-
         setAbsentToday(absent);
-      } else {
-        setAbsentToday([]);
+        setLoadingStatus(false);
+        return;
       }
 
-      // Holidays (Filter by Country)
+      setLoadingStatus(true);
+      const teamData = await api.leaves.getByTeam(selectedGroup.id); // Returns {user, leaves}[]
+      const today = toLocalISODate(new Date());
+      const absent = teamData
+        .filter(item => item.user.id !== user.id) // Exclude self
+        .map(item => {
+          const activeLeave = item.leaves.find(l => today >= l.startDate && today <= l.endDate);
+          return activeLeave ? { user: item.user, leave: activeLeave } : null;
+        })
+        .filter(Boolean) as { user: User; leave: LeaveRecord }[];
+      setAbsentToday(absent);
+      setLoadingStatus(false);
+    };
+    loadStatus();
+  }, [user, selectedGroup, pod]);
+
+  useEffect(() => {
+    const loadHolidays = async () => {
+      setLoadingHolidays(true);
       const hols = await api.holidays.getYear(new Date().getFullYear());
-      const todayIso = new Date().toISOString().split('T')[0];
+      const todayIso = toLocalISODate(new Date());
       const futureHols = hols
         .filter(h => h.date >= todayIso)
         .filter(h => h.country === 'ALL' || h.country === user.country);
-        
       setUpcomingHolidays(futureHols.slice(0, 3));
-
-      setLoading(false);
+      setLoadingHolidays(false);
     };
-    load();
-  }, [user, selectedTeamId]);
+    loadHolidays();
+  }, [user]);
 
   useEffect(() => {
     const loadTeams = async () => {
-      const teams = await api.team.getAll();
-      const favIds = await api.history.getFavorites(user.id);
-      let createdIds: string[] = [];
-      try {
-        const raw = localStorage.getItem('easy_timeoff_created_virtual_teams');
-        const parsed = raw ? JSON.parse(raw) : [];
-        createdIds = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        createdIds = [];
-      }
-      const options: { id: string; label: string }[] = [];
-      const added = new Set<string>();
-
-      const addOption = (team: Team | undefined, label: string) => {
-        if (!team || added.has(team.id)) return;
-        options.push({ id: team.id, label });
-        added.add(team.id);
-      };
-
-      const myTeam = teams.find(t => t.id === user.teamId);
-      if (myTeam) {
-        addOption(myTeam, `My Team · ${myTeam.name}`);
-      }
-
-      teams
-        .filter(t => t.type === 'VIRTUAL' && createdIds.includes(t.id))
-        .forEach(t => addOption(t, `Created · ${t.name}`));
-
-      teams
-        .filter(t => t.type === 'VIRTUAL' && favIds.includes(t.id))
-        .forEach(t => addOption(t, `Favorite · ${t.name}`));
-
-      setTeamOptions(options);
-      setFavoriteTeams(teams.filter(t => favIds.includes(t.id)));
-      const views = await api.history.get(user.id);
-      setRecentViews(views);
-
-      setSelectedTeamId(prev => {
-        if (prev && options.some(o => o.id === prev)) return prev;
-        return options[0]?.id ?? null;
-      });
+      const [podRes, createdTeamsRes] = await Promise.all([
+        user.teamId ? api.pod.getById(user.teamId) : Promise.resolve(null),
+        api.team.getCreatedByUser(user.id)
+      ]);
+      setPod(podRes);
+      setCreatedTeams(createdTeamsRes);
     };
     loadTeams();
   }, [user]);
 
-  const selectedTeamLabel = teamOptions.find(o => o.id === selectedTeamId)?.label || 'Select team';
+  useEffect(() => {
+    const options: { id: string; label: string; type: 'POD' | 'TEAM' }[] = [];
+    const added = new Set<string>();
+
+    const addOption = (id: string | undefined, label: string, type: 'POD' | 'TEAM') => {
+      if (!id || added.has(id)) return;
+      options.push({ id, label, type });
+      added.add(id);
+    };
+
+    if (pod) {
+      addOption(pod.id, `My Pod · ${pod.name}`, 'POD');
+    }
+
+    createdTeams
+      .filter(t => t.type === 'VIRTUAL')
+      .forEach(t => addOption(t.id, `Created · ${t.name}`, 'TEAM'));
+
+    favoriteTeams.forEach(t => addOption(t.id, `Favorite · ${t.name}`, 'TEAM'));
+
+    setTeamOptions(options);
+    setSelectedGroup(prev => {
+      if (prev && options.some(o => o.id === prev.id)) return prev;
+      return options[0] ? { id: options[0].id, type: options[0].type } : null;
+    });
+  }, [pod, createdTeams, favoriteTeams]);
+
+  const selectedTeamLabel = teamOptions.find(o => o.id === selectedGroup?.id)?.label || 'Select team';
   const selectedTeamName = selectedTeamLabel.includes('·')
     ? selectedTeamLabel.split('·').slice(-1)[0].trim()
     : selectedTeamLabel;
@@ -129,8 +153,11 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                     </div>
                     <div className="flex items-center gap-2 ml-auto">
                         <select
-                            value={selectedTeamId || ''}
-                            onChange={(e) => setSelectedTeamId(e.target.value)}
+                            value={selectedGroup?.id || ''}
+                            onChange={(e) => {
+                                const next = teamOptions.find(o => o.id === e.target.value);
+                                if (next) setSelectedGroup({ id: next.id, type: next.type });
+                            }}
                             className="text-xs font-medium text-slate-600 bg-white border border-gray-200 rounded-md px-2 py-1 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
                         >
                             {teamOptions.length === 0 && <option value="">No teams</option>}
@@ -138,18 +165,18 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                                 <option key={option.id} value={option.id}>{option.label}</option>
                             ))}
                         </select>
-                        {selectedTeamId && (
-                            <Link to={`/calendar/${selectedTeamId}`} className="text-xs font-medium text-gray-400 hover:text-brand-600">
+                        {selectedGroup && (
+                            <Link to={`/calendar/${selectedGroup.id}`} className="text-xs font-medium text-gray-400 hover:text-brand-600">
                                 View Calendar
                             </Link>
                         )}
                     </div>
                 </div>
                 
-                {!selectedTeamId ? (
+                {!selectedGroup ? (
                     <div className="h-32 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
                         <Users size={22} className="mb-2 opacity-50 text-gray-400" />
-                        <span className="text-sm">Select a team to see who's out.</span>
+                        <span className="text-sm">Select a pod or team to see who's out.</span>
                     </div>
                 ) : absentToday.length === 0 ? (
                     <div className="h-32 flex flex-col items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
@@ -220,7 +247,8 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                         <p className="text-sm text-gray-500 italic">No recent views yet.</p>
                     ) : (
                         recentViews.slice(0, 4).map((item) => {
-                            const isTeam = item.type === 'TEAM';
+                            const isTeam = item.type !== 'USER';
+                            const typeLabel = item.type === 'POD' ? 'Pod' : isTeam ? 'Team' : 'Person';
                             const Icon = isTeam ? Users : UserIcon;
                             return (
                                 <Link
@@ -234,7 +262,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                                         </span>
                                         <span className="text-sm text-slate-700 truncate">{item.name}</span>
                                     </div>
-                                    <span className="text-xs text-gray-400">{isTeam ? 'Team' : 'Person'}</span>
+                                    <span className="text-xs text-gray-400">{typeLabel}</span>
                                 </Link>
                             );
                         })
@@ -251,7 +279,7 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
                         </div>
                         <h3 className="font-bold text-slate-700">Favorites</h3>
                     </div>
-                    <Link to="/favorites-2" className="text-xs font-medium text-gray-400 hover:text-brand-600">More</Link>
+                    <Link to="/favorite" className="text-xs font-medium text-gray-400 hover:text-brand-600">More</Link>
                 </div>
                 <div className="space-y-3">
                     {favoriteTeams.length === 0 ? (

@@ -7,9 +7,10 @@ import TeamCalendar from './pages/TeamCalendar';
 import Directory from './pages/Directory';
 import UserCalendar from './pages/UserCalendar';
 import History from './pages/History';
-import Favorites2 from './pages/Favorites2';
+import Favorites from './pages/Favorites';
 import Login from './pages/Login';
 import { ToastProvider } from './components/ToastContext';
+import { SidebarDataProvider } from './components/SidebarDataContext';
 import { User } from './types';
 
 const App: React.FC = () => {
@@ -39,20 +40,22 @@ const App: React.FC = () => {
 
   return (
     <ToastProvider>
-      <Router>
-        <Layout user={user} onLogout={handleLogout}>
-          <Routes>
-            <Route path="/" element={<Dashboard user={user} />} />
-            <Route path="/my-leaves" element={<MyLeaves currentUser={user} />} />
-            <Route path="/directory" element={<Directory />} />
-            <Route path="/calendar/:teamId" element={<TeamCalendar />} />
-            <Route path="/user/:userId" element={<UserCalendar />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/favorites-2" element={<Favorites2 />} />
-            <Route path="*" element={<div className="p-8">Page under construction</div>} />
-          </Routes>
-        </Layout>
-      </Router>
+      <SidebarDataProvider user={user}>
+        <Router>
+          <Layout user={user} onLogout={handleLogout}>
+            <Routes>
+              <Route path="/" element={<Dashboard user={user} />} />
+              <Route path="/my-leaves" element={<MyLeaves currentUser={user} />} />
+              <Route path="/directory" element={<Directory currentUser={user} />} />
+              <Route path="/calendar/:teamId" element={<TeamCalendar />} />
+              <Route path="/user/:userId" element={<UserCalendar />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/favorite" element={<Favorites />} />
+              <Route path="*" element={<div className="p-8">Page under construction</div>} />
+            </Routes>
+          </Layout>
+        </Router>
+      </SidebarDataProvider>
     </ToastProvider>
   );
 };
