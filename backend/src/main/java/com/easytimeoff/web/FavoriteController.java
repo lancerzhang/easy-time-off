@@ -2,9 +2,11 @@ package com.easytimeoff.web;
 
 import com.easytimeoff.domain.FavoriteTeam;
 import com.easytimeoff.repository.FavoriteTeamRepository;
+import com.easytimeoff.util.OffsetBasedPageRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Sort;
 
 import java.util.Collections;
 import java.util.List;
@@ -19,11 +21,34 @@ public class FavoriteController {
     private final FavoriteTeamRepository favoriteTeamRepository;
 
     @GetMapping
-    public List<String> getByUser(@RequestParam(required = false) String userId) {
+    public List<String> getByUser(
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
         if (userId == null || userId.isBlank()) {
             return Collections.emptyList();
         }
-        return favoriteTeamRepository.findByUserIdOrderByCreatedAtDesc(userId)
+
+        if (limit == null) {
+            return favoriteTeamRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                    .stream()
+                    .map(FavoriteTeam::getTeamId)
+                    .collect(Collectors.toList());
+        }
+
+        if (limit < 1) {
+            return Collections.emptyList();
+        }
+
+        int safeOffset = offset == null ? 0 : Math.max(0, offset);
+        OffsetBasedPageRequest pageRequest = new OffsetBasedPageRequest(
+                safeOffset,
+                limit,
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        return favoriteTeamRepository.findByUserIdOrderByCreatedAtDesc(userId, pageRequest)
                 .stream()
                 .map(FavoriteTeam::getTeamId)
                 .collect(Collectors.toList());

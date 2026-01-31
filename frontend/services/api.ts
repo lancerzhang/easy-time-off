@@ -5,6 +5,9 @@ const API_BASE = 'http://localhost:8080/api';
 const USE_MOCK_FALLBACK = true;
 const MOCK_HISTORY: Record<string, ViewHistoryItem[]> = {};
 const MOCK_FAVORITES: Record<string, string[]> = {};
+const GET_DEDUP_TTL_MS = 1500;
+const inFlightRequests = new Map<string, Promise<unknown>>();
+const responseCache = new Map<string, { expiresAt: number; value: unknown }>();
 
 const getCurrentUserId = (): string | null => {
     try {
@@ -23,30 +26,63 @@ const mockDelay = <T>(data: T): Promise<T> => {
 
 // Generic Request Helper with Fallback Capability
 const request = async <T>(endpoint: string, options?: RequestInit): Promise<T | null> => {
+    const url = `${API_BASE}${endpoint}`;
+    const method = (options?.method || 'GET').toUpperCase();
+    const cacheKey = `${method}:${url}`;
+    const canDedup = method === 'GET' && !options?.body;
+
+    if (canDedup) {
+        const cached = responseCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.value as T;
+        }
+        const inFlight = inFlightRequests.get(cacheKey);
+        if (inFlight) {
+            return inFlight as Promise<T>;
+        }
+    }
+
     try {
-        const response = await fetch(`${API_BASE}${endpoint}`, {
+        const fetchPromise = fetch(url, {
             ...options,
             headers: {
                 'Content-Type': 'application/json',
                 ...options?.headers,
             },
         });
+        const responsePromise = (async () => {
+            const response = await fetchPromise;
 
-        if (!response.ok) {
-             throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            if (!response.ok) {
+                 throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            }
+
+            if (response.status === 204 || response.headers.get('content-length') === '0') {
+                return {} as T;
+            }
+
+            return await response.json();
+        })();
+
+        if (canDedup) {
+            inFlightRequests.set(cacheKey, responsePromise);
         }
 
-        if (response.status === 204 || response.headers.get('content-length') === '0') {
-            return {} as T;
+        const data = await responsePromise;
+        if (canDedup && data !== null) {
+            responseCache.set(cacheKey, { expiresAt: Date.now() + GET_DEDUP_TTL_MS, value: data });
         }
-
-        return await response.json();
+        return data;
     } catch (error) {
         if (USE_MOCK_FALLBACK) {
             console.warn(`Backend unreachable or failed (${endpoint}), falling back to mock data.`, error);
             return null; // Return null to signal fallback logic
         }
         throw error;
+    } finally {
+        if (canDedup) {
+            inFlightRequests.delete(cacheKey);
+        }
     }
 };
 
@@ -64,6 +100,13 @@ export const api = {
         const res = await request<User[]>('/users');
         if (res) return res;
         return mockDelay(MOCK_USERS);
+    },
+    getByIds: async (ids: string[]): Promise<User[]> => {
+        if (!ids.length) return [];
+        const idsParam = ids.join(',');
+        const res = await request<User[]>(`/users?ids=${encodeURIComponent(idsParam)}`);
+        if (res) return res;
+        return mockDelay(MOCK_USERS.filter(u => ids.includes(u.id)));
     },
     getById: async (id: string): Promise<User | undefined> => {
         const res = await request<User>(`/users/${id}`);
@@ -267,10 +310,13 @@ export const api = {
 
   // Client-Side Only Logic
   history: {
-    get: async (userId?: string): Promise<ViewHistoryItem[]> => {
+    get: async (userId?: string, limit?: number, offset?: number): Promise<ViewHistoryItem[]> => {
         const uid = userId || getCurrentUserId();
         if (!uid) return [];
-        const res = await request<ViewHistoryItem[]>(`/history?userId=${encodeURIComponent(uid)}`);
+        const params = new URLSearchParams({ userId: uid });
+        if (limit !== undefined) params.set('limit', String(limit));
+        if (offset !== undefined) params.set('offset', String(offset));
+        const res = await request<ViewHistoryItem[]>(`/history?${params.toString()}`);
         if (res) return res;
         return mockDelay(MOCK_HISTORY[uid] || []);
     },
@@ -293,10 +339,13 @@ export const api = {
         if (list.length > 10) list.pop();
         MOCK_HISTORY[uid] = list;
     },
-    getFavorites: async (userId?: string): Promise<string[]> => {
+    getFavorites: async (userId?: string, limit?: number, offset?: number): Promise<string[]> => {
         const uid = userId || getCurrentUserId();
         if (!uid) return [];
-        const res = await request<string[]>(`/favorites?userId=${encodeURIComponent(uid)}`);
+        const params = new URLSearchParams({ userId: uid });
+        if (limit !== undefined) params.set('limit', String(limit));
+        if (offset !== undefined) params.set('offset', String(offset));
+        const res = await request<string[]>(`/favorites?${params.toString()}`);
         if (res) return res;
         return mockDelay(MOCK_FAVORITES[uid] || []);
     },

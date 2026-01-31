@@ -13,17 +13,29 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [teamName, setTeamName] = useState('');
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
-  const [allUsers, setAllUsers] = useState<User[]>([]); // For selection in modal
+  const [selectedUsers, setSelectedUsers] = useState<User[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<User[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     loadData();
   }, [searchQuery]);
 
-  // Load all users for the modal once
   useEffect(() => {
-    api.user.getAll().then(setAllUsers);
-  }, []);
+    if (!memberSearch.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      const results = await api.search.users(memberSearch.trim());
+      setSearchResults(results);
+      setIsSearching(false);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [memberSearch]);
 
   const loadData = async () => {
     setLoading(true);
@@ -40,21 +52,27 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const openNewModal = () => {
       setEditingTeamId(null);
       setTeamName('');
-      setSelectedMembers([]);
+      setSelectedUsers([]);
+      setMemberSearch('');
+      setSearchResults([]);
       setIsModalOpen(true);
   };
 
-  const openEditModal = (team: Team, e: React.MouseEvent) => {
+  const openEditModal = async (team: Team, e: React.MouseEvent) => {
       e.preventDefault();
       setEditingTeamId(team.id);
       setTeamName(team.name);
-      setSelectedMembers(team.memberIds);
+      setSelectedUsers([]);
+      setMemberSearch('');
+      setSearchResults([]);
       setIsModalOpen(true);
+      const users = await api.user.getByIds(team.memberIds);
+      setSelectedUsers(users);
   };
 
   const handleSaveTeam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!teamName.trim() || selectedMembers.length === 0) return;
+    if (!teamName.trim() || selectedUsers.length === 0) return;
 
     if (editingTeamId) {
         // Update
@@ -62,18 +80,20 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
             id: editingTeamId,
             name: teamName,
             type: 'VIRTUAL',
-            memberIds: selectedMembers,
+            memberIds: selectedUsers.map(u => u.id),
             createdBy: currentUser.id
         };
         await api.team.saveVirtualTeam(team);
     } else {
         // Create
-        await api.team.createVirtualTeam(teamName, selectedMembers, currentUser.id);
+        await api.team.createVirtualTeam(teamName, selectedUsers.map(u => u.id), currentUser.id);
     }
 
     setIsModalOpen(false);
     setTeamName('');
-    setSelectedMembers([]);
+    setSelectedUsers([]);
+    setMemberSearch('');
+    setSearchResults([]);
     loadData(); // Refresh list
   };
 
@@ -85,13 +105,15 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     }
   };
 
-  const toggleMemberSelection = (userId: string) => {
-    if (selectedMembers.includes(userId)) {
-        setSelectedMembers(selectedMembers.filter(id => id !== userId));
-    } else {
-        setSelectedMembers([...selectedMembers, userId]);
-    }
+  const toggleMemberSelection = (user: User) => {
+    setSelectedUsers(prev => {
+      const exists = prev.some(u => u.id === user.id);
+      if (exists) return prev.filter(u => u.id !== user.id);
+      return [...prev, user];
+    });
   };
+
+  const listUsers = memberSearch.trim() ? searchResults : selectedUsers;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -204,14 +226,39 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                         </div>
                         
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Select Members ({selectedMembers.length})</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Select Members ({selectedUsers.length})
+                            </label>
+                            <div className="mb-3">
+                              <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                                <input
+                                  type="text"
+                                  placeholder="Search by name, email, or employee ID..."
+                                  value={memberSearch}
+                                  onChange={(e) => setMemberSearch(e.target.value)}
+                                  className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none text-sm"
+                                />
+                              </div>
+                              {!memberSearch.trim() && selectedUsers.length > 0 && (
+                                <p className="text-xs text-gray-400 mt-2">Showing selected members. Search to add more.</p>
+                              )}
+                            </div>
                             <div className="border border-gray-200 rounded-lg max-h-[300px] overflow-y-auto divide-y divide-gray-100">
-                                {allUsers.map(u => {
-                                    const isSelected = selectedMembers.includes(u.id);
+                                {isSearching && (
+                                  <div className="p-3 text-sm text-gray-400">Searching...</div>
+                                )}
+                                {!isSearching && listUsers.length === 0 && (
+                                  <div className="p-3 text-sm text-gray-400">
+                                    {memberSearch.trim() ? 'No matching users.' : 'Search to add members.'}
+                                  </div>
+                                )}
+                                {!isSearching && listUsers.map(u => {
+                                    const isSelected = selectedUsers.some(s => s.id === u.id);
                                     return (
                                         <div 
                                             key={u.id} 
-                                            onClick={() => toggleMemberSelection(u.id)}
+                                            onClick={() => toggleMemberSelection(u)}
                                             className={`p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition-colors ${isSelected ? 'bg-brand-50' : ''}`}
                                         >
                                             <div className={`w-5 h-5 rounded border flex items-center justify-center ${isSelected ? 'bg-brand-600 border-brand-600' : 'border-gray-300'}`}>
@@ -239,7 +286,7 @@ const Directory: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                         </button>
                         <button 
                             type="submit"
-                            disabled={!teamName.trim() || selectedMembers.length === 0}
+                            disabled={!teamName.trim() || selectedUsers.length === 0}
                             className="px-4 py-2 text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {editingTeamId ? 'Save Changes' : 'Create Team'}

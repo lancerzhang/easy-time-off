@@ -2,9 +2,11 @@ package com.easytimeoff.web;
 
 import com.easytimeoff.domain.ViewHistory;
 import com.easytimeoff.repository.ViewHistoryRepository;
+import com.easytimeoff.util.OffsetBasedPageRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.data.domain.Sort;
 
 import java.util.Collections;
 import java.util.List;
@@ -20,11 +22,34 @@ public class HistoryController {
     private final ViewHistoryRepository viewHistoryRepository;
 
     @GetMapping
-    public List<HistoryResponse> getByUser(@RequestParam(required = false) String userId) {
+    public List<HistoryResponse> getByUser(
+            @RequestParam(required = false) String userId,
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) Integer offset
+    ) {
         if (userId == null || userId.isBlank()) {
             return Collections.emptyList();
         }
-        return viewHistoryRepository.findTop10ByUserIdOrderByTimestampDesc(userId)
+
+        if (limit == null) {
+            return viewHistoryRepository.findTop10ByUserIdOrderByTimestampDesc(userId)
+                    .stream()
+                    .map(HistoryController::toResponse)
+                    .collect(Collectors.toList());
+        }
+
+        if (limit < 1) {
+            return Collections.emptyList();
+        }
+
+        int safeOffset = offset == null ? 0 : Math.max(0, offset);
+        OffsetBasedPageRequest pageRequest = new OffsetBasedPageRequest(
+                safeOffset,
+                limit,
+                Sort.by(Sort.Direction.DESC, "timestamp")
+        );
+
+        return viewHistoryRepository.findByUserIdOrderByTimestampDesc(userId, pageRequest)
                 .stream()
                 .map(HistoryController::toResponse)
                 .collect(Collectors.toList());
