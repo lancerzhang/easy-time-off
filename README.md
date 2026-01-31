@@ -45,6 +45,27 @@ The server will start on `http://localhost:8080`.
 ### Database
 *   **Development**: Uses H2 In-Memory Database.
 *   **Console**: Access `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:mem:easytimeoffdb`)
+*   **PostgreSQL (Docker + dev profile)**:
+    1. Start a local Postgres container:
+        ```bash
+        docker run --name easytimeoff-pg \
+          -e POSTGRES_DB=easytimeoff \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -p 5432:5432 \
+          -v easytimeoff_pg:/var/lib/postgresql/data \
+          -d postgres:16
+        ```
+    2. Run Spring Boot with the `dev` profile:
+        ```bash
+        cd backend
+        SPRING_PROFILES_ACTIVE=dev mvn spring-boot:run
+        ```
+        or
+        ```bash
+        mvn spring-boot:run -Dspring-boot.run.profiles=dev
+        ```
+    3. Profile config lives in `backend/src/main/resources/application-dev.properties`.
 
 ## Features implemented
 *   **Active Directory Integration** (Stubbed in `User.java`)
