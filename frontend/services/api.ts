@@ -3,11 +3,32 @@ import { MOCK_USERS, MOCK_TEAMS, MOCK_PODS, MOCK_LEAVES, PUBLIC_HOLIDAYS_2026 } 
 
 const API_BASE = 'http://localhost:8080/api';
 const USE_MOCK_FALLBACK = true;
+const SEARCH_LIMIT = 20;
+const HISTORY_DEDUP_TTL_MS = 2000;
 const MOCK_HISTORY: Record<string, ViewHistoryItem[]> = {};
 const MOCK_FAVORITES: Record<string, string[]> = {};
 const GET_DEDUP_TTL_MS = 1500;
 const inFlightRequests = new Map<string, Promise<unknown>>();
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>();
+const historyInFlight = new Map<string, Promise<void>>();
+const historyRecent = new Map<string, number>();
+
+type DateRange = { from?: string; to?: string };
+type GroupLeavesResponse = { user: User; leaves: LeaveRecord[] };
+
+const toQueryString = (params: URLSearchParams): string => {
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+};
+
+const filterLeavesByRange = (leaves: LeaveRecord[], range?: DateRange): LeaveRecord[] => {
+    if (!range?.from && !range?.to) return leaves;
+    return leaves.filter(leave => {
+        const startsBeforeEnd = !range?.to || leave.startDate <= range.to;
+        const endsAfterStart = !range?.from || leave.endDate >= range.from;
+        return startsBeforeEnd && endsAfterStart;
+    });
+};
 
 const getCurrentUserId = (): string | null => {
     try {
@@ -121,6 +142,13 @@ export const api = {
         if (res) return res;
         return mockDelay(MOCK_TEAMS);
     },
+    getByIds: async (ids: string[]): Promise<Team[]> => {
+        if (!ids.length) return [];
+        const idsParam = ids.join(',');
+        const res = await request<Team[]>(`/teams?ids=${encodeURIComponent(idsParam)}`);
+        if (res) return res;
+        return mockDelay(MOCK_TEAMS.filter(t => ids.includes(t.id)));
+    },
     getCreatedByUser: async (userId: string): Promise<Team[]> => {
         const res = await request<Team[]>(`/teams?createdBy=${encodeURIComponent(userId)}&type=VIRTUAL`);
         if (res) return res;
@@ -193,32 +221,22 @@ export const api = {
         return mockDelay(MOCK_LEAVES.filter(l => l.userId === userId));
     },
     
-    getByTeam: async (teamId: string): Promise<{ user: User, leaves: LeaveRecord[] }[]> => {
+    getByTeam: async (teamId: string, range?: DateRange): Promise<GroupLeavesResponse[]> => {
       try {
-        const teamRes = await request<Team>(`/teams/${teamId}`);
-        
-        if (teamRes) {
-             if (!teamRes.memberIds || teamRes.memberIds.length === 0) return [];
-             const idsParam = teamRes.memberIds.join(',');
-             
-             const [members, leaves] = await Promise.all([
-                 request<User[]>(`/users?ids=${idsParam}`),
-                 request<LeaveRecord[]>(`/leaves?userIds=${idsParam}`)
-             ]);
-
-             if (members && leaves) {
-                 return members.map(user => ({
-                    user,
-                    leaves: leaves.filter(l => l.userId === user.id)
-                 }));
-             }
-        }
+        const params = new URLSearchParams();
+        if (range?.from) params.set('from', range.from);
+        if (range?.to) params.set('to', range.to);
+        const res = await request<GroupLeavesResponse[]>(`/teams/${teamId}/leaves${toQueryString(params)}`);
+        if (res) return res;
         
         const mockTeam = MOCK_TEAMS.find(t => t.id === teamId);
         if (!mockTeam) return [];
         
         const members = MOCK_USERS.filter(u => mockTeam.memberIds.includes(u.id));
-        const leaves = MOCK_LEAVES.filter(l => mockTeam.memberIds.includes(l.userId));
+        const leaves = filterLeavesByRange(
+            MOCK_LEAVES.filter(l => mockTeam.memberIds.includes(l.userId)),
+            range
+        );
         
         return mockDelay(members.map(user => ({
             user,
@@ -229,32 +247,22 @@ export const api = {
         return [];
       }
     },
-    getByPod: async (podId: string, pod?: Pod): Promise<{ user: User, leaves: LeaveRecord[] }[]> => {
+    getByPod: async (podId: string, pod?: Pod, range?: DateRange): Promise<GroupLeavesResponse[]> => {
       try {
-        const podRes = pod ?? await request<Pod>(`/pods/${podId}`);
+        const params = new URLSearchParams();
+        if (range?.from) params.set('from', range.from);
+        if (range?.to) params.set('to', range.to);
+        const res = await request<GroupLeavesResponse[]>(`/pods/${podId}/leaves${toQueryString(params)}`);
+        if (res) return res;
 
-        if (podRes) {
-            if (!podRes.memberIds || podRes.memberIds.length === 0) return [];
-            const idsParam = podRes.memberIds.join(',');
-
-            const [members, leaves] = await Promise.all([
-                request<User[]>(`/users?ids=${idsParam}`),
-                request<LeaveRecord[]>(`/leaves?userIds=${idsParam}`)
-            ]);
-
-            if (members && leaves) {
-                return members.map(user => ({
-                   user,
-                   leaves: leaves.filter(l => l.userId === user.id)
-                }));
-            }
-        }
-
-        const mockPod = MOCK_PODS.find(p => p.id === podId);
+        const mockPod = pod ?? MOCK_PODS.find(p => p.id === podId);
         if (!mockPod) return [];
 
         const members = MOCK_USERS.filter(u => mockPod.memberIds.includes(u.id));
-        const leaves = MOCK_LEAVES.filter(l => mockPod.memberIds.includes(l.userId));
+        const leaves = filterLeavesByRange(
+            MOCK_LEAVES.filter(l => mockPod.memberIds.includes(l.userId)),
+            range
+        );
 
         return mockDelay(members.map(user => ({
             user,
@@ -323,21 +331,38 @@ export const api = {
     add: async (item: Omit<ViewHistoryItem, 'timestamp'> & { userId?: string }) => {
         const uid = item.userId || getCurrentUserId();
         if (!uid) return;
-        const res = await request<ViewHistoryItem>('/history', {
-            method: 'POST',
-            body: JSON.stringify({
-                userId: uid,
-                itemId: item.id,
-                type: item.type,
-                name: item.name
-            })
-        });
-        if (res) return;
-        let list = MOCK_HISTORY[uid] || [];
-        list = list.filter(i => !(i.id === item.id && i.type === item.type));
-        list.unshift({ id: item.id, name: item.name, type: item.type, timestamp: Date.now() });
-        if (list.length > 10) list.pop();
-        MOCK_HISTORY[uid] = list;
+        const key = `${uid}:${item.type}:${item.id}`;
+        const lastSentAt = historyRecent.get(key);
+        if (lastSentAt && Date.now() - lastSentAt < HISTORY_DEDUP_TTL_MS) return;
+
+        const inFlight = historyInFlight.get(key);
+        if (inFlight) return inFlight;
+
+        historyRecent.set(key, Date.now());
+        const sendPromise = (async () => {
+            const res = await request<ViewHistoryItem>('/history', {
+                method: 'POST',
+                body: JSON.stringify({
+                    userId: uid,
+                    itemId: item.id,
+                    type: item.type,
+                    name: item.name
+                })
+            });
+            if (res) return;
+            let list = MOCK_HISTORY[uid] || [];
+            list = list.filter(i => !(i.id === item.id && i.type === item.type));
+            list.unshift({ id: item.id, name: item.name, type: item.type, timestamp: Date.now() });
+            if (list.length > 10) list.pop();
+            MOCK_HISTORY[uid] = list;
+        })();
+
+        historyInFlight.set(key, sendPromise);
+        try {
+            await sendPromise;
+        } finally {
+            historyInFlight.delete(key);
+        }
     },
     getFavorites: async (userId?: string, limit?: number, offset?: number): Promise<string[]> => {
         const uid = userId || getCurrentUserId();
@@ -370,7 +395,7 @@ export const api = {
 
   search: {
     users: async (query: string): Promise<User[]> => {
-       const res = await request<User[]>(`/users?query=${encodeURIComponent(query)}`);
+       const res = await request<User[]>(`/users?query=${encodeURIComponent(query)}&limit=${SEARCH_LIMIT}`);
        if (res) return res;
        
        if (!query) return mockDelay(MOCK_USERS);
@@ -382,7 +407,7 @@ export const api = {
        ));
     },
     teams: async (query: string): Promise<Team[]> => {
-       const res = await request<Team[]>(`/teams?query=${encodeURIComponent(query)}`);
+       const res = await request<Team[]>(`/teams?query=${encodeURIComponent(query)}&limit=${SEARCH_LIMIT}`);
        if (res) return res;
        
        if (!query) return mockDelay(MOCK_TEAMS);

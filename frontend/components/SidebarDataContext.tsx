@@ -42,8 +42,8 @@ export const SidebarDataProvider: React.FC<{ children: React.ReactNode; user: Us
       return;
     }
 
-    const allTeams = await api.team.getAll();
-    setTeams(allTeams);
+    const favorites = await api.team.getByIds(favIds);
+    setTeams(favorites);
   }, [user?.id]);
 
   useEffect(() => {
@@ -61,8 +61,8 @@ export const SidebarDataProvider: React.FC<{ children: React.ReactNode; user: Us
     }
 
     if (teams.length === 0) {
-      const allTeams = await api.team.getAll();
-      setTeams(allTeams);
+      const favorites = await api.team.getByIds(favIds);
+      setTeams(favorites);
     }
 
     return favIds;

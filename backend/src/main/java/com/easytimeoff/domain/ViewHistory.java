@@ -9,7 +9,10 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "view_history",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "item_id", "type"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "item_id", "type"}),
+        indexes = {
+                @Index(name = "idx_view_history_user_timestamp", columnList = "user_id,timestamp")
+        }
 )
 @Data
 @Builder

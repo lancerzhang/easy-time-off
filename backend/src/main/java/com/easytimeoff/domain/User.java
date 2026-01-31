@@ -7,7 +7,15 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "users")
+@Table(
+        name = "users",
+        indexes = {
+                @Index(name = "idx_users_employee_id", columnList = "employee_id"),
+                @Index(name = "idx_users_email", columnList = "email"),
+                @Index(name = "idx_users_team_id", columnList = "team_id"),
+                @Index(name = "idx_users_ad_principal_id", columnList = "ad_principal_id")
+        }
+)
 @Data
 @Builder
 @NoArgsConstructor
@@ -17,10 +25,10 @@ public class User {
     @Id
     private String id;
 
-    @Column(nullable = false, unique = true)
+    @Column(name = "employee_id", nullable = false, unique = true)
     private String employeeID;
 
-    @Column(nullable = false)
+    @Column(name = "display_name", nullable = false)
     private String displayName;
 
     @Column(nullable = false, unique = true)

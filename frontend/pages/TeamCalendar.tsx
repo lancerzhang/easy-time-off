@@ -70,6 +70,14 @@ const TeamCalendar: React.FC = () => {
     });
   }, [currentDate]);
 
+  const monthRange = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const from = new Date(year, month, 1);
+    const to = new Date(year, month + 1, 0);
+    return { from: toLocalISODate(from), to: toLocalISODate(to) };
+  }, [currentDate]);
+
   const hoveredDateLabel = useMemo(() => {
     if (!hoveredDateIso) return null;
     const match = daysInMonth.find(d => d.iso === hoveredDateIso);
@@ -94,11 +102,11 @@ const TeamCalendar: React.FC = () => {
 
       setLoadingGroup(true);
 
-      const loadTeam = async () => {
+        const loadTeam = async () => {
         const t = await api.team.getById(teamId);
         if (!t) return false;
         setActiveGroup({ type: 'TEAM', id: t.id, name: t.name, memberIds: t.memberIds });
-        const membersData = await api.leaves.getByTeam(t.id);
+        const membersData = await api.leaves.getByTeam(t.id, monthRange);
         setData(membersData);
         await api.history.add({ id: t.id, name: t.name, type: 'TEAM', userId: currentUser?.id });
         return true;
@@ -108,7 +116,7 @@ const TeamCalendar: React.FC = () => {
         if (isCurrentUserPodRoute) {
           if (currentUserPod) {
             setActiveGroup({ type: 'POD', id: currentUserPod.id, name: currentUserPod.name, memberIds: currentUserPod.memberIds });
-            const membersData = await api.leaves.getByPod(currentUserPod.id, currentUserPod);
+            const membersData = await api.leaves.getByPod(currentUserPod.id, currentUserPod, monthRange);
             setData(membersData);
             await api.history.add({ id: currentUserPod.id, name: currentUserPod.name, type: 'POD', userId: currentUser?.id });
             return true;
@@ -118,7 +126,7 @@ const TeamCalendar: React.FC = () => {
         const p = await api.pod.getById(teamId);
         if (!p) return false;
         setActiveGroup({ type: 'POD', id: p.id, name: p.name, memberIds: p.memberIds });
-        const membersData = await api.leaves.getByPod(p.id, p);
+        const membersData = await api.leaves.getByPod(p.id, p, monthRange);
         setData(membersData);
         await api.history.add({ id: p.id, name: p.name, type: 'POD', userId: currentUser?.id });
         return true;
@@ -136,7 +144,7 @@ const TeamCalendar: React.FC = () => {
       setLoadingGroup(false);
     };
     fetchGroup();
-  }, [teamId, currentUser?.id, currentUser?.teamId, currentUserPod, userPodLoaded]);
+  }, [teamId, currentUser?.id, currentUser?.teamId, currentUserPod, userPodLoaded, monthRange]);
 
   useEffect(() => {
     const loadUserPod = async () => {

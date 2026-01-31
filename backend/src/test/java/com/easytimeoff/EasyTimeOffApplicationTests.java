@@ -24,9 +24,9 @@ class EasyTimeOffApplicationTests {
 
     @Test
     void testDataSeedingAndSearch() {
-        // The DataInitializer should have run and populated the DB
-        // search accepts (String query, List<String> ids). Passing null, null returns all users.
-        List<User> users = userController.search(null, null);
+        // The DataInitializer should have run and populated the DB.
+        // search accepts (String query, List<String> ids, Integer limit, Integer offset).
+        List<User> users = userController.search(null, null, null, null);
         
         assertThat(users).isNotEmpty();
         assertThat(users).extracting(User::getDisplayName).contains("Alice Chen", "Bob Smith");
@@ -38,7 +38,7 @@ class EasyTimeOffApplicationTests {
         
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).isNotNull();
-        List<User> users = userController.search(null, null);
+        List<User> users = userController.search(null, null, null, null);
         assertThat(users).isNotEmpty();
         assertThat(users).extracting(User::getId).contains(response.getBody().getId());
     }

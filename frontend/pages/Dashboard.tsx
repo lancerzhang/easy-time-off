@@ -20,6 +20,9 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
   const { history: recentViews, favoriteTeams } = useSidebarData();
   const loading = loadingStatus || loadingHolidays;
 
+  const todayIso = toLocalISODate(new Date());
+  const todayRange = { from: todayIso, to: todayIso };
+
   useEffect(() => {
     const loadStatus = async () => {
       if (!selectedGroup) {
@@ -36,8 +39,8 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
           return;
         }
         setLoadingStatus(true);
-        const teamData = await api.leaves.getByPod(selectedGroup.id, pod);
-        const today = toLocalISODate(new Date());
+        const teamData = await api.leaves.getByPod(selectedGroup.id, pod || undefined, todayRange);
+        const today = todayIso;
         const absent = teamData
           .filter(item => item.user.id !== user.id) // Exclude self
           .map(item => {
@@ -51,8 +54,8 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       }
 
       setLoadingStatus(true);
-      const teamData = await api.leaves.getByTeam(selectedGroup.id); // Returns {user, leaves}[]
-      const today = toLocalISODate(new Date());
+      const teamData = await api.leaves.getByTeam(selectedGroup.id, todayRange); // Returns {user, leaves}[]
+      const today = todayIso;
       const absent = teamData
         .filter(item => item.user.id !== user.id) // Exclude self
         .map(item => {
@@ -64,13 +67,12 @@ const Dashboard: React.FC<{ user: User }> = ({ user }) => {
       setLoadingStatus(false);
     };
     loadStatus();
-  }, [user, selectedGroup, pod]);
+  }, [user, selectedGroup, pod, todayIso]);
 
   useEffect(() => {
     const loadHolidays = async () => {
       setLoadingHolidays(true);
       const hols = await api.holidays.getYear(new Date().getFullYear());
-      const todayIso = toLocalISODate(new Date());
       const futureHols = hols
         .filter(h => h.date >= todayIso)
         .filter(h => h.country === 'ALL' || h.country === user.country);

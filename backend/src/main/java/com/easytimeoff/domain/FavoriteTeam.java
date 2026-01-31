@@ -9,7 +9,10 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(
         name = "favorite_teams",
-        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "team_id"})
+        uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "team_id"}),
+        indexes = {
+                @Index(name = "idx_favorite_teams_user_created_at", columnList = "user_id,created_at")
+        }
 )
 @Data
 @Builder

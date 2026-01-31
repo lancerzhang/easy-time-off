@@ -10,7 +10,15 @@ import java.util.HashSet;
 import java.util.Set;
 
 @Entity
-@Table(name = "teams")
+@Table(
+        name = "teams",
+        indexes = {
+                @Index(name = "idx_teams_name", columnList = "name"),
+                @Index(name = "idx_teams_type", columnList = "type"),
+                @Index(name = "idx_teams_created_by", columnList = "created_by"),
+                @Index(name = "idx_teams_created_by_type", columnList = "created_by,type")
+        }
+)
 @Data
 @Builder
 @NoArgsConstructor
@@ -35,7 +43,14 @@ public class Team {
     // to match the frontend JSON structure. 
     // In a strict Relational model, this would be a @ManyToMany with User.
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "team_members", joinColumns = @JoinColumn(name = "team_id"))
+    @CollectionTable(
+            name = "team_members",
+            joinColumns = @JoinColumn(name = "team_id"),
+            indexes = {
+                    @Index(name = "idx_team_members_team_id", columnList = "team_id"),
+                    @Index(name = "idx_team_members_user_id", columnList = "user_id")
+            }
+    )
     @Column(name = "user_id")
     @Builder.Default
     private Set<String> memberIds = new HashSet<>();
