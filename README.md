@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-*Note: The frontend currently runs in "Mock Mode" using `frontend/services/api.ts` to simulate a backend for immediate demonstration. To switch to the real Java backend, update `frontend/services/api.ts` to fetch from `http://localhost:8080/api`.*
+*Note: The frontend calls the real backend at `http://localhost:8080/api` and will fall back to mock data **only** if the backend is unreachable or returns a non-2xx error. This fallback is controlled by `USE_MOCK_FALLBACK` in `frontend/services/api.ts`.*
 
 ## ☕ Running the Backend (Server)
 
@@ -66,11 +66,12 @@ The server will start on `http://localhost:8080`.
         mvn spring-boot:run -Dspring-boot.run.profiles=dev
         ```
     3. Profile config lives in `backend/src/main/resources/application-dev.properties`.
-    4. Seed performance data (5000 users, pods, teams, favorites, leaves):
+    4. The `dev` profile disables mock data seeding (`app.seed-data=false`). Mock seeding remains enabled for the default H2 profile (`app.seed-data=true` in `application.properties`).
+    5. Seed performance data (5000 users, pods, teams, favorites, leaves):
         ```bash
         docker exec -i easytimeoff-pg psql -U postgres -d easytimeoff < backend/scripts/seed_perf.sql
         ```
-    5. Clear data and re-seed:
+    6. Clear data and re-seed:
         ```bash
         docker exec -i easytimeoff-pg psql -U postgres -d easytimeoff < backend/scripts/seed_perf.sql
         ```
