@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, ArrowRight, ShieldCheck } from 'lucide-react';
+import { ArrowRight, ShieldCheck } from 'lucide-react';
 import { api } from '../services/api';
 import { User } from '../types';
 
@@ -27,7 +27,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-brand-100 mb-4">
-          <Calendar className="w-8 h-8 text-brand-600" />
+          <img src="/app-icon.svg" alt="Easy Time-off" className="w-9 h-9" />
         </div>
         <h2 className="text-3xl font-extrabold text-slate-900">Easy Time-off</h2>
         <p className="mt-2 text-sm text-gray-600">

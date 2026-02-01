@@ -92,7 +92,10 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 h-screen overflow-hidden">
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-gray-200 p-4 flex justify-between items-center shrink-0 z-20 relative">
-        <div className="font-bold text-xl text-brand-600">Easy Time-off</div>
+        <div className="font-bold text-xl text-brand-600 flex items-center gap-2">
+          <img src="/app-icon.svg" alt="Easy Time-off" className="w-7 h-7" />
+          <span>Easy Time-off</span>
+        </div>
         <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
           {isMobileMenuOpen ? <X /> : <Menu />}
         </button>
@@ -106,7 +109,7 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
       `}>
         <div className="p-6 hidden md:block shrink-0">
           <div className="font-bold text-2xl text-brand-600 flex items-center gap-2">
-            <Calendar className="w-8 h-8" />
+            <img src="/app-icon.svg" alt="Easy Time-off" className="w-8 h-8" />
             <span>Easy Time-off</span>
           </div>
         </div>

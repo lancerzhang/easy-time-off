@@ -9,6 +9,7 @@ import UserCalendar from './pages/UserCalendar';
 import History from './pages/History';
 import Favorites from './pages/Favorites';
 import Login from './pages/Login';
+import LeaveSuccess from './pages/LeaveSuccess';
 import { ToastProvider } from './components/ToastContext';
 import { SidebarDataProvider } from './components/SidebarDataContext';
 import { User } from './types';
@@ -51,6 +52,7 @@ const App: React.FC = () => {
               <Route path="/user/:userId" element={<UserCalendar />} />
               <Route path="/history" element={<History />} />
               <Route path="/favorite" element={<Favorites />} />
+              <Route path="/leave-success" element={<LeaveSuccess />} />
               <Route path="*" element={<div className="p-8">Page under construction</div>} />
             </Routes>
           </Layout>

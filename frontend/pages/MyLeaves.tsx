@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, AlertCircle, Edit2, Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api } from '../services/api';
 import { useToast } from '../components/ToastContext';
@@ -7,6 +8,7 @@ import { parseISODate, toLocalISODate } from '../utils/date';
 
 const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const { showToast } = useToast();
+  const navigate = useNavigate();
   const [leaves, setLeaves] = useState<LeaveRecord[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -105,6 +107,7 @@ const MyLeaves: React.FC<{ currentUser: User }> = ({ currentUser }) => {
             note
           });
           showToast('Leave request submitted successfully', 'success');
+          navigate(`/leave-success?start=${encodeURIComponent(startDate)}&end=${encodeURIComponent(endDate)}`);
       }
       setShowModal(false);
       loadLeaves();

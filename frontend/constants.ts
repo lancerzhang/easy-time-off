@@ -43,3 +43,7 @@ export const MOCK_LEAVES: LeaveRecord[] = [
   // Charlie (HR System)
   { id: 'l3', userId: 'u3', startDate: '2026-02-01', endDate: '2026-02-28', source: DataSource.HR, status: LeaveStatus.APPROVED, note: 'Sabbatical' },
 ];
+
+// External systems
+// TODO: Update to your organization's Clarity Timesheet URL.
+export const CLARITY_TIMESHEET_URL = 'https://clarity.company.com/';

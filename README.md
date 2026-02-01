@@ -66,6 +66,15 @@ The server will start on `http://localhost:8080`.
         mvn spring-boot:run -Dspring-boot.run.profiles=dev
         ```
     3. Profile config lives in `backend/src/main/resources/application-dev.properties`.
+    4. Seed performance data (5000 users, pods, teams, favorites, leaves):
+        ```bash
+        docker exec -i easytimeoff-pg psql -U postgres -d easytimeoff < backend/scripts/seed_perf.sql
+        ```
+    5. Clear data and re-seed:
+        ```bash
+        docker exec -i easytimeoff-pg psql -U postgres -d easytimeoff < backend/scripts/seed_perf.sql
+        ```
+        *Note: The script truncates relevant tables at the start, so re-running it will wipe and rebuild data.*
 
 ## Features implemented
 *   **Active Directory Integration** (Stubbed in `User.java`)
